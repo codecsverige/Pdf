@@ -1,15 +1,45 @@
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, Pressable, FlatList, Image, Alert } from 'react-native';
+import Constants from 'expo-constants';
+import { PDFDocument } from 'pdf-lib';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, View, Pressable, FlatList, Image, Alert, Platform, Modal } from 'react-native';
+import { toByteArray } from 'base64-js';
+import mobileAds from 'react-native-google-mobile-ads';
+import Purchases from 'react-native-purchases';
+import Paywall from './components/Paywall';
+import AdBanner from './components/AdBanner';
 
 export default function App() {
   const [images, setImages] = useState<string[]>([]);
   const [isBuilding, setIsBuilding] = useState<boolean>(false);
+  const [isPro, setIsPro] = useState<boolean>(false);
+  const [showPaywall, setShowPaywall] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Initialize Google Mobile Ads (safe to call multiple times)
+    mobileAds().initialize();
+
+    // Initialize RevenueCat purchases if keys are provided via extra
+    const extra: any = Constants.expoConfig?.extra ?? {};
+    const androidKey = extra?.revenuecatAndroidKey ?? '';
+    const iosKey = extra?.revenuecatIosKey ?? '';
+    const apiKey = Platform.select({ ios: iosKey, android: androidKey });
+    if (apiKey && typeof apiKey === 'string' && apiKey.length > 10) {
+      Purchases.configure({ apiKey });
+      // Fetch customer info to determine entitlement
+      Purchases.getCustomerInfo()
+        .then(info => {
+          const active = info?.entitlements?.active ?? {};
+          setIsPro(Boolean(active['pro'] || active['premium']));
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   async function pickImages() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -37,18 +67,22 @@ export default function App() {
     try {
       const pdfDoc = await PDFDocument.create();
       for (const uri of images) {
-        const file = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-        const imgBytes = Uint8Array.from(atob(file), c => c.charCodeAt(0));
-        let embedded;
-        if (uri.toLowerCase().endsWith('.png')) embedded = await pdfDoc.embedPng(imgBytes);
-        else embedded = await pdfDoc.embedJpg(imgBytes);
+        // Compress and normalize to JPEG for consistent embedding
+        const manipulated = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 2000 } }],
+          { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        if (!manipulated.base64) continue;
+        const imgBytes = toByteArray(manipulated.base64);
+        const embedded = await pdfDoc.embedJpg(imgBytes);
         const { width, height } = embedded.size();
         const page = pdfDoc.addPage([width, height]);
         page.drawImage(embedded, { x: 0, y: 0, width, height });
       }
-      const pdfBytes = await pdfDoc.save();
+      const base64Pdf = await pdfDoc.saveAsBase64({ dataUri: false });
       const fileUri = FileSystem.cacheDirectory + `scan_${Date.now()}.pdf`;
-      await FileSystem.writeAsStringAsync(fileUri, Buffer.from(pdfBytes).toString('base64'), { encoding: FileSystem.EncodingType.Base64 });
+      await FileSystem.writeAsStringAsync(fileUri, base64Pdf, { encoding: FileSystem.EncodingType.Base64 });
 
       const mediaPerm = await MediaLibrary.requestPermissionsAsync();
       if (mediaPerm.granted) {
@@ -80,6 +114,11 @@ export default function App() {
         <Pressable style={[styles.btn, isBuilding && styles.btnDisabled]} onPress={buildPdf} disabled={isBuilding}>
           <Text style={styles.btnText}>{isBuilding ? 'جارٍ...' : 'إنشاء PDF'}</Text>
         </Pressable>
+        {!isPro && (
+          <Pressable style={styles.btnOutline} onPress={() => setShowPaywall(true)}>
+            <Text style={styles.btnText}>ترقية</Text>
+          </Pressable>
+        )}
         <Pressable style={styles.btnOutline} onPress={clearImages}>
           <Text style={styles.btnText}>مسح</Text>
         </Pressable>
@@ -93,6 +132,8 @@ export default function App() {
         showsHorizontalScrollIndicator={false}
       />
       <StatusBar style="auto" />
+      {!isPro && <AdBanner />}
+      <Paywall visible={showPaywall} onClose={() => setShowPaywall(false)} onPurchased={() => { setIsPro(true); setShowPaywall(false); }} />
     </View>
   );
 }

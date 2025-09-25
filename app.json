@@ -7,6 +7,19 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "plugins": [
+      [
+        "react-native-google-mobile-ads",
+        {
+          "android_app_id": "ca-app-pub-3940256099942544~3347511713",
+          "ios_app_id": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ]
+    ],
+    "extra": {
+      "revenuecatAndroidKey": "",
+      "revenuecatIosKey": ""
+    },
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -18,6 +31,7 @@
     "android": {
       "package": "com.codecsverige.pdf",
       "versionCode": 1,
+      "googleServicesFile": "",
       "permissions": [
         "CAMERA",
         "READ_MEDIA_IMAGES",
