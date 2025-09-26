@@ -9,16 +9,18 @@ try {
 } catch {}
 
 export default function AdBanner() {
-  if (!BannerAd || !BannerAdSize || !TestIds) {
+  // Return placeholder for web or when ads aren't available
+  if (Platform.OS === 'web' || !BannerAd || !BannerAdSize || !TestIds) {
     return <View style={styles.placeholder} />;
   }
+  
   const unitId = useMemo(() => {
     return Platform.select({ ios: TestIds.BANNER, android: TestIds.BANNER }) as string;
   }, []);
 
   return (
     <View style={styles.container}>
-      <BannerAd unitId={unitId} size={BannerAdSize.ADOBE_BANNER} />
+      <BannerAd unitId={unitId} size={BannerAdSize.BANNER} />
     </View>
   );
 }
