@@ -12,7 +12,8 @@ import { StyleSheet, Text, View, Pressable, FlatList, Image, Alert, Platform, Mo
 import { toByteArray } from 'base64-js';
 let mobileAds: any;
 try { mobileAds = require('react-native-google-mobile-ads').default; } catch {}
-import Purchases from 'react-native-purchases';
+let Purchases: any;
+try { Purchases = require('react-native-purchases').default; } catch {}
 import Paywall from './components/Paywall';
 import AdBanner from './components/AdBanner';
 
@@ -31,11 +32,11 @@ export default function App() {
     const androidKey = extra?.revenuecatAndroidKey ?? '';
     const iosKey = extra?.revenuecatIosKey ?? '';
     const apiKey = Platform.select({ ios: iosKey, android: androidKey });
-    if (apiKey && typeof apiKey === 'string' && apiKey.length > 10) {
-      Purchases.configure({ apiKey });
+    if (Purchases && apiKey && typeof apiKey === 'string' && apiKey.length > 10) {
+      try { Purchases.configure({ apiKey }); } catch {}
       // Fetch customer info to determine entitlement
-      Purchases.getCustomerInfo()
-        .then(info => {
+      Purchases?.getCustomerInfo?.()
+        .then((info: any) => {
           const active = info?.entitlements?.active ?? {};
           setIsPro(Boolean(active['pro'] || active['premium']));
         })
