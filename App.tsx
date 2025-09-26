@@ -10,10 +10,7 @@ import { PDFDocument } from 'pdf-lib';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, Pressable, FlatList, Image, Alert, Platform, Modal } from 'react-native';
 import { toByteArray } from 'base64-js';
-let mobileAds: any;
-try { mobileAds = require('react-native-google-mobile-ads').default; } catch {}
-let Purchases: any;
-try { Purchases = require('react-native-purchases').default; } catch {}
+// Note: Avoid importing native-only libs in web; use native components instead
 import Paywall from './components/Paywall';
 import AdBanner from './components/AdBanner';
 
@@ -24,24 +21,10 @@ export default function App() {
   const [showPaywall, setShowPaywall] = useState<boolean>(false);
 
   useEffect(() => {
-    // Initialize Google Mobile Ads if available
-    try { mobileAds && mobileAds().initialize(); } catch {}
-
-    // Initialize RevenueCat purchases if keys are provided via extra
+    // In web we skip native purchases/ads initialization.
+    // On native, AdBanner and Paywall handle their own native logic.
     const extra: any = Constants.expoConfig?.extra ?? {};
-    const androidKey = extra?.revenuecatAndroidKey ?? '';
-    const iosKey = extra?.revenuecatIosKey ?? '';
-    const apiKey = Platform.select({ ios: iosKey, android: androidKey });
-    if (Purchases && apiKey && typeof apiKey === 'string' && apiKey.length > 10) {
-      try { Purchases.configure({ apiKey }); } catch {}
-      // Fetch customer info to determine entitlement
-      Purchases?.getCustomerInfo?.()
-        .then((info: any) => {
-          const active = info?.entitlements?.active ?? {};
-          setIsPro(Boolean(active['pro'] || active['premium']));
-        })
-        .catch(() => {});
-    }
+    // Potentially read extra in the future for feature flags
   }, []);
 
   async function pickImages() {

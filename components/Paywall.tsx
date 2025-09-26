@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, Pressable, StyleSheet, ActivityIndicator, Alert } from 'react-native';
-import Purchases from 'react-native-purchases';
+let Purchases: any;
+try { Purchases = require('react-native-purchases').default; } catch {}
 
 type Props = {
   visible: boolean;
