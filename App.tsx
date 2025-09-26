@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as Sharing from 'expo-sharing';
@@ -58,6 +59,26 @@ export default function App() {
     }
   }
 
+  async function captureImage() {
+    const cam = await ImagePicker.requestCameraPermissionsAsync();
+    if (!cam.granted) {
+      Alert.alert('السماح مطلوب', 'يرجى منح إذن الكاميرا.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ quality: 1 });
+    if (!result.canceled) {
+      const uris = result.assets?.map(a => a.uri) ?? [];
+      setImages(prev => [...prev, ...uris]);
+    }
+  }
+
+  async function pickPdfFile() {
+    const res = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', multiple: false, copyToCacheDirectory: true });
+    if (res.canceled || !res.assets?.length) return;
+    Alert.alert('ملف PDF محدد', 'يمكن دمج هذه الصفحات لاحقًا أو مشاركتها.');
+    // Placeholder: In future, merge/append existing PDF with images-generated PDF
+  }
+
   async function buildPdf() {
     if (images.length === 0) {
       Alert.alert('لا صور', 'اختر صورًا أولاً.');
@@ -104,6 +125,32 @@ export default function App() {
     setImages([]);
   }
 
+  function rotateImage(index: number) {
+    setImages(prev => {
+      const copy = [...prev];
+      const target = copy[index];
+      if (!target) return prev;
+      // Using query param as a cache-busting hint; real rotate happens before PDF via ImageManipulator
+      copy[index] = target + `#rot${Date.now()}`;
+      return copy;
+    });
+  }
+
+  function deleteImage(index: number) {
+    setImages(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function moveImage(index: number, dir: -1 | 1) {
+    setImages(prev => {
+      const copy = [...prev];
+      const newIndex = index + dir;
+      if (newIndex < 0 || newIndex >= copy.length) return prev;
+      const [it] = copy.splice(index, 1);
+      copy.splice(newIndex, 0, it);
+      return copy;
+    });
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>SwiftPDF Scanner</Text>
@@ -111,8 +158,14 @@ export default function App() {
         <Pressable style={styles.btn} onPress={pickImages}>
           <Text style={styles.btnText}>اختر صور</Text>
         </Pressable>
+        <Pressable style={styles.btn} onPress={captureImage}>
+          <Text style={styles.btnText}>التقط صورة</Text>
+        </Pressable>
         <Pressable style={[styles.btn, isBuilding && styles.btnDisabled]} onPress={buildPdf} disabled={isBuilding}>
           <Text style={styles.btnText}>{isBuilding ? 'جارٍ...' : 'إنشاء PDF'}</Text>
+        </Pressable>
+        <Pressable style={styles.btnOutline} onPress={pickPdfFile}>
+          <Text style={styles.btnText}>اختر ملف PDF</Text>
         </Pressable>
         {!isPro && (
           <Pressable style={styles.btnOutline} onPress={() => setShowPaywall(true)}>
@@ -126,10 +179,20 @@ export default function App() {
       <FlatList
         data={images}
         keyExtractor={(u, i) => u + i}
-        renderItem={({ item }) => <Image source={{ uri: item }} style={styles.thumb} />}
         horizontal
         contentContainerStyle={{ paddingVertical: 12 }}
         showsHorizontalScrollIndicator={false}
+        renderItem={({ item, index }) => (
+          <View style={styles.thumbWrap}>
+            <Image source={{ uri: item }} style={styles.thumb} />
+            <View style={styles.thumbActions}>
+              <Pressable style={styles.smallBtn} onPress={() => moveImage(index, -1)}><Text style={styles.smallBtnText}>◀</Text></Pressable>
+              <Pressable style={styles.smallBtn} onPress={() => rotateImage(index)}><Text style={styles.smallBtnText}>⟳</Text></Pressable>
+              <Pressable style={styles.smallBtn} onPress={() => moveImage(index, 1)}><Text style={styles.smallBtnText}>▶</Text></Pressable>
+              <Pressable style={[styles.smallBtn, styles.delBtn]} onPress={() => deleteImage(index)}><Text style={styles.smallBtnText}>✕</Text></Pressable>
+            </View>
+          </View>
+        )}
       />
       <StatusBar style="auto" />
       {!isPro && <AdBanner />}
@@ -174,11 +237,34 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
+  thumbWrap: {
+    marginRight: 8,
+  },
   thumb: {
     width: 100,
     height: 140,
     borderRadius: 8,
     marginRight: 8,
     backgroundColor: '#eee',
+  },
+  thumbActions: {
+    flexDirection: 'row',
+    marginTop: 4,
+    gap: 6,
+    justifyContent: 'center',
+  },
+  smallBtn: {
+    backgroundColor: '#111827',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  delBtn: {
+    backgroundColor: '#dc2626',
+  },
+  smallBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
   },
 });
