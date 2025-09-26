@@ -1,10 +1,18 @@
 import React, { useMemo } from 'react';
 import { Platform, View, StyleSheet } from 'react-native';
-import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
+let BannerAd: any, BannerAdSize: any, TestIds: any;
+try {
+  const mod = require('react-native-google-mobile-ads');
+  BannerAd = mod.BannerAd;
+  BannerAdSize = mod.BannerAdSize;
+  TestIds = mod.TestIds;
+} catch {}
 
 export default function AdBanner() {
+  if (!BannerAd || !BannerAdSize || !TestIds) {
+    return <View style={styles.placeholder} />;
+  }
   const unitId = useMemo(() => {
-    // Replace with real ad unit ids before production
     return Platform.select({ ios: TestIds.BANNER, android: TestIds.BANNER }) as string;
   }, []);
 
@@ -17,5 +25,6 @@ export default function AdBanner() {
 
 const styles = StyleSheet.create({
   container: { alignItems: 'center', justifyContent: 'center', paddingVertical: 8 },
+  placeholder: { height: 0 },
 });
 

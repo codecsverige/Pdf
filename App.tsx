@@ -10,7 +10,8 @@ import { PDFDocument } from 'pdf-lib';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, Pressable, FlatList, Image, Alert, Platform, Modal } from 'react-native';
 import { toByteArray } from 'base64-js';
-import mobileAds from 'react-native-google-mobile-ads';
+let mobileAds: any;
+try { mobileAds = require('react-native-google-mobile-ads').default; } catch {}
 import Purchases from 'react-native-purchases';
 import Paywall from './components/Paywall';
 import AdBanner from './components/AdBanner';
@@ -22,8 +23,8 @@ export default function App() {
   const [showPaywall, setShowPaywall] = useState<boolean>(false);
 
   useEffect(() => {
-    // Initialize Google Mobile Ads (safe to call multiple times)
-    mobileAds().initialize();
+    // Initialize Google Mobile Ads if available
+    try { mobileAds && mobileAds().initialize(); } catch {}
 
     // Initialize RevenueCat purchases if keys are provided via extra
     const extra: any = Constants.expoConfig?.extra ?? {};
