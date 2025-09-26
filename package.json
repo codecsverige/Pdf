@@ -12,7 +12,6 @@
     "web": "npx expo start --web"
   },
   "dependencies": {
-    "@types/react": "18.3.11",
     "base64-js": "^1.5.1",
     "expo": "~54.0.10",
     "expo-document-picker": "~14.0.7",
@@ -23,14 +22,15 @@
     "expo-sharing": "~14.0.7",
     "expo-status-bar": "~3.0.8",
     "pdf-lib": "^1.17.1",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "react-native": "0.74.5",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.4",
     "react-native-google-mobile-ads": "^12.6.0",
     "react-native-purchases": "^7.0.0",
     "react-native-web": "^0.21.0"
   },
   "devDependencies": {
+    "@types/react": "~19.1.0",
     "typescript": "~5.9.2"
   },
   "private": true
