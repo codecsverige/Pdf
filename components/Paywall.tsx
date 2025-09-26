@@ -16,6 +16,7 @@ export default function Paywall({ visible, onClose, onPurchased }: Props) {
   useEffect(() => {
     async function loadOfferings() {
       try {
+        if (!Purchases) return;
         const offerings = await Purchases.getOfferings();
         const current = offerings.current;
         const first = current?.availablePackages?.[0];
@@ -28,7 +29,7 @@ export default function Paywall({ visible, onClose, onPurchased }: Props) {
   }, [visible]);
 
   async function purchase() {
-    if (!packageId) {
+    if (!Purchases || !packageId) {
       Alert.alert('غير متاح', 'العرض غير متاح حاليًا.');
       return;
     }
