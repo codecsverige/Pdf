@@ -7,6 +7,12 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "plugins": [
+      [
+        "react-native-google-mobile-ads",
+        { "androidAppId": "ca-app-pub-3940256099942544~3347511713" }
+      ]
+    ],
     
     "extra": {
       "revenuecatAndroidKey": "",

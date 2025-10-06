@@ -9,7 +9,10 @@
     "start": "npx expo start",
     "android": "npx expo run:android",
     "ios": "npx expo run:ios",
-    "web": "npx expo start --web"
+    "web": "npx expo start --web",
+    "build:aab": "eas build -p android --profile production",
+    "build:apk": "eas build -p android --profile preview",
+    "submit:play": "eas submit -p android --latest"
   },
   "dependencies": {
     "expo": "~54.0.10",
