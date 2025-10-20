@@ -13,12 +13,14 @@ import { toByteArray } from 'base64-js';
 // Note: Avoid importing native-only libs in web; use native components instead
 import Paywall from './components/Paywall';
 import AdBanner from './components/AdBanner';
+import ImmigrationQuery from './components/ImmigrationQuery';
 
 export default function App() {
   const [images, setImages] = useState<string[]>([]);
   const [isBuilding, setIsBuilding] = useState<boolean>(false);
   const [isPro, setIsPro] = useState<boolean>(false);
   const [showPaywall, setShowPaywall] = useState<boolean>(false);
+  const [showImmigrationQuery, setShowImmigrationQuery] = useState<boolean>(false);
 
   useEffect(() => {
     // In web we skip native purchases/ads initialization.
@@ -152,6 +154,9 @@ export default function App() {
         <Pressable style={styles.btnOutline} onPress={pickPdfFile}>
           <Text style={styles.btnText}>اختر ملف PDF</Text>
         </Pressable>
+        <Pressable style={[styles.btn, { backgroundColor: '#059669' }]} onPress={() => setShowImmigrationQuery(true)}>
+          <Text style={styles.btnText}>استفسار هجرة</Text>
+        </Pressable>
         {!isPro && (
           <Pressable style={styles.btnOutline} onPress={() => setShowPaywall(true)}>
             <Text style={styles.btnText}>ترقية</Text>
@@ -182,6 +187,14 @@ export default function App() {
       <StatusBar style="auto" />
       {!isPro && <AdBanner />}
       <Paywall visible={showPaywall} onClose={() => setShowPaywall(false)} onPurchased={() => { setIsPro(true); setShowPaywall(false); }} />
+      <Modal visible={showImmigrationQuery} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalContainer}>
+          <Pressable style={styles.closeBtn} onPress={() => setShowImmigrationQuery(false)}>
+            <Text style={styles.closeBtnText}>✕ إغلاق</Text>
+          </Pressable>
+          <ImmigrationQuery />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -251,5 +264,21 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 12,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    paddingTop: 20,
+  },
+  closeBtn: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  closeBtnText: {
+    fontSize: 16,
+    color: '#2563eb',
+    fontWeight: '600',
   },
 });
