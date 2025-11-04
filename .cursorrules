@@ -1,0 +1,25 @@
+# Cursor Agent Rules
+
+You are working in a React Native/Expo project. When starting work on a new or empty repository:
+
+1. Always check if `package.json` exists - if not, create one with appropriate dependencies
+2. Install dependencies with `npm install` if `node_modules` is missing
+3. Check for TypeScript configuration files (`tsconfig.json`)
+4. Create basic project structure if the repository is empty
+5. Read existing files to understand the project context before making changes
+
+## Project Type
+- This is an Expo/React Native project
+- Use TypeScript for all new files
+- Follow React Native best practices
+
+## When Repository is Empty
+- Create a basic `package.json` with essential dependencies
+- Create a basic `App.tsx` or `index.ts` entry point
+- Create a `tsconfig.json` if using TypeScript
+- Create a `.gitignore` file appropriate for the project type
+
+## Communication
+- Always respond in Arabic when the user communicates in Arabic
+- Be proactive in setting up the project structure
+- Don't stop working - continue until the task is complete
