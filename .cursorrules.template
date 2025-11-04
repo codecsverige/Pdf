@@ -1,0 +1,13 @@
+# Cursor Agent Rules
+
+When working in an empty repository:
+1. Always start by creating a basic project structure
+2. If the user asks to create a new app, start by creating package.json
+3. Never stop working - always complete the task
+4. If the repository is completely empty, ask what type of project to create OR create a basic structure based on the context
+
+## Important
+- Always respond in Arabic when user communicates in Arabic
+- Be proactive - don't wait for explicit instructions if the goal is clear
+- Install dependencies automatically when needed
+- When repository is empty, create at least a basic package.json file to establish project context

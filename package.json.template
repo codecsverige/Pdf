@@ -1,0 +1,10 @@
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "echo 'Project started'"
+  },
+  "private": true
+}
