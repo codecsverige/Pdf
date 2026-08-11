@@ -8,6 +8,11 @@ export type PdfOutput = {
   bytes: number;
 };
 
+function decodedBase64Size(base64: string) {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
 async function loadPdf(uri: string) {
   const base64 = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.Base64,
@@ -16,18 +21,18 @@ async function loadPdf(uri: string) {
 }
 
 async function persistPdf(pdf: PDFDocument, prefix: string): Promise<PdfOutput> {
+  if (!FileSystem.cacheDirectory) throw new Error('App cache directory is unavailable.');
   const fileName = `${prefix}_${Date.now()}.pdf`;
   const uri = `${FileSystem.cacheDirectory}${fileName}`;
-  const base64 = await pdf.saveAsBase64({ dataUri: false });
+  const base64 = await pdf.saveAsBase64({ dataUri: false, useObjectStreams: true });
   await FileSystem.writeAsStringAsync(uri, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
-  const info = await FileSystem.getInfoAsync(uri);
   return {
     uri,
     fileName,
     pageCount: pdf.getPageCount(),
-    bytes: info.exists && typeof info.size === 'number' ? info.size : 0,
+    bytes: decodedBase64Size(base64),
   };
 }
 
@@ -64,7 +69,7 @@ export function parsePageSelection(expression: string, maxPages: number): number
 
 export async function mergePdfs(uris: string[]): Promise<PdfOutput> {
   if (uris.length < 2) throw new Error('Choose at least two PDF files.');
-  const output = await PDFDocument.create();
+  const output = await PDFDocument.create({ updateMetadata: false });
   for (const uri of uris) {
     const source = await loadPdf(uri);
     const pages = await output.copyPages(source, source.getPageIndices());
@@ -76,7 +81,7 @@ export async function mergePdfs(uris: string[]): Promise<PdfOutput> {
 export async function extractPages(uri: string, expression: string): Promise<PdfOutput> {
   const source = await loadPdf(uri);
   const indices = parsePageSelection(expression, source.getPageCount());
-  const output = await PDFDocument.create();
+  const output = await PDFDocument.create({ updateMetadata: false });
   const pages = await output.copyPages(source, indices);
   pages.forEach(page => output.addPage(page));
   return persistPdf(output, 'extracted');
@@ -89,7 +94,7 @@ export async function reorderPages(uri: string, expression: string): Promise<Pdf
   if (indices.length !== total || new Set(indices).size !== total) {
     throw new Error(`Use every page exactly once. This file has ${total} pages.`);
   }
-  const output = await PDFDocument.create();
+  const output = await PDFDocument.create({ updateMetadata: false });
   const pages = await output.copyPages(source, indices);
   pages.forEach(page => output.addPage(page));
   return persistPdf(output, 'reordered');
