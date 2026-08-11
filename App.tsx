@@ -25,6 +25,7 @@ import {
   watermarkPdf,
 } from './services/pdfEngine';
 import { ImageInput, imagesToPdf } from './services/imageToPdf';
+import { savePdfToChosenFolder } from './services/savePdf';
 
 type ToolId = 'merge' | 'extract' | 'reorder' | 'rotate' | 'watermark' | 'numbers' | 'images';
 
@@ -72,6 +73,7 @@ export default function App() {
   const [startAt, setStartAt] = useState('1');
   const [rotation, setRotation] = useState<90 | 180 | 270>(90);
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<PdfOutput | null>(null);
 
   const selectedTool = useMemo(() => TOOLS.find(item => item.id === tool) ?? null, [tool]);
@@ -189,6 +191,19 @@ export default function App() {
     }
   }
 
+  async function saveResult() {
+    if (!result) return;
+    setSaving(true);
+    try {
+      await savePdfToChosenFolder(result.uri, result.fileName);
+      Alert.alert('Saved', 'The PDF was copied to the folder you selected.');
+    } catch (error) {
+      Alert.alert('Could not save PDF', errorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function shareResult() {
     if (!result) return;
     if (!(await Sharing.isAvailableAsync())) {
@@ -197,7 +212,7 @@ export default function App() {
     }
     await Sharing.shareAsync(result.uri, {
       mimeType: 'application/pdf',
-      dialogTitle: 'Save or share PDF',
+      dialogTitle: 'Share PDF',
       UTI: 'com.adobe.pdf',
     });
   }
@@ -341,9 +356,14 @@ export default function App() {
                   <Text style={styles.resultName}>{result.fileName}</Text>
                   <Text style={styles.resultMeta}>{result.pageCount} pages • {formatBytes(result.bytes)}</Text>
                 </View>
-                <Pressable style={styles.shareButton} onPress={shareResult}>
-                  <Text style={styles.shareButtonText}>Save / Share</Text>
-                </Pressable>
+                <View style={styles.resultActions}>
+                  <Pressable style={[styles.saveButton, saving && styles.disabled]} onPress={saveResult} disabled={saving}>
+                    {saving ? <ActivityIndicator color="#166534" size="small" /> : <Text style={styles.saveButtonText}>Save to folder</Text>}
+                  </Pressable>
+                  <Pressable style={styles.shareButton} onPress={shareResult}>
+                    <Text style={styles.shareButtonText}>Share</Text>
+                  </Pressable>
+                </View>
               </View>
             )}
           </View>
@@ -398,6 +418,9 @@ const styles = StyleSheet.create({
   resultTitle: { color: '#166534', fontWeight: '800', fontSize: 15 },
   resultName: { color: '#14532d', marginTop: 4, fontWeight: '600' },
   resultMeta: { color: '#15803d', fontSize: 12, marginTop: 3 },
-  shareButton: { backgroundColor: '#166534', borderRadius: 11, paddingVertical: 11, alignItems: 'center' },
+  resultActions: { flexDirection: 'row', gap: 10 },
+  saveButton: { flex: 1, borderWidth: 1, borderColor: '#16a34a', borderRadius: 11, paddingVertical: 11, alignItems: 'center', justifyContent: 'center' },
+  saveButtonText: { color: '#166534', fontWeight: '800' },
+  shareButton: { flex: 1, backgroundColor: '#166534', borderRadius: 11, paddingVertical: 11, alignItems: 'center', justifyContent: 'center' },
   shareButtonText: { color: '#ffffff', fontWeight: '800' },
 });
