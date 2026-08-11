@@ -1,13 +1,22 @@
 {
   "expo": {
-    "name": "PdfApp",
+    "name": "PDF Pro Tools",
     "slug": "PdfApp",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PDF Pro Tools to select images you choose for PDF creation.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ],
     "extra": {
       "revenuecatAndroidKey": "",
       "revenuecatIosKey": ""
@@ -22,14 +31,7 @@
     },
     "android": {
       "package": "com.codecsverige.pdf",
-      "versionCode": 1,
-      "googleServicesFile": "",
-      "permissions": [
-        "CAMERA",
-        "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
-      ],
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
