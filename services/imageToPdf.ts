@@ -16,6 +16,11 @@ export type ImageToPdfOptions = {
   pageMode?: 'auto' | 'portrait' | 'landscape';
 };
 
+function decodedBase64Size(base64: string) {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
 function fitInside(sourceWidth: number, sourceHeight: number, boxWidth: number, boxHeight: number) {
   const scale = Math.min(boxWidth / sourceWidth, boxHeight / sourceHeight);
   return { width: sourceWidth * scale, height: sourceHeight * scale };
@@ -33,12 +38,13 @@ export async function imagesToPdf(
   options: ImageToPdfOptions = {},
 ): Promise<PdfOutput> {
   if (!images.length) throw new Error('Choose at least one image.');
+  if (!FileSystem.cacheDirectory) throw new Error('App cache directory is unavailable.');
 
-  const margin = options.margin ?? 28;
-  const quality = options.jpegQuality ?? 0.9;
-  const maxImageWidth = options.maxImageWidth ?? 2200;
+  const margin = Math.max(0, options.margin ?? 28);
+  const quality = Math.max(0.2, Math.min(1, options.jpegQuality ?? 0.9));
+  const maxImageWidth = Math.max(600, options.maxImageWidth ?? 2200);
   const mode = options.pageMode ?? 'auto';
-  const pdf = await PDFDocument.create();
+  const pdf = await PDFDocument.create({ updateMetadata: false });
 
   for (const image of images) {
     const actions: ImageManipulator.Action[] = [];
@@ -73,16 +79,15 @@ export async function imagesToPdf(
 
   const fileName = `images_${Date.now()}.pdf`;
   const uri = `${FileSystem.cacheDirectory}${fileName}`;
-  const base64 = await pdf.saveAsBase64({ dataUri: false });
+  const base64 = await pdf.saveAsBase64({ dataUri: false, useObjectStreams: true });
   await FileSystem.writeAsStringAsync(uri, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
-  const info = await FileSystem.getInfoAsync(uri);
 
   return {
     uri,
     fileName,
     pageCount: pdf.getPageCount(),
-    bytes: info.exists && typeof info.size === 'number' ? info.size : 0,
+    bytes: decodedBase64Size(base64),
   };
 }
