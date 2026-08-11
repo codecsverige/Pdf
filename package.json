@@ -31,5 +31,12 @@
     "@types/react": "~19.1.0",
     "typescript": "~5.9.2"
   },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "exclude": ["react-native-google-mobile-ads"]
+      }
+    }
+  },
   "private": true
 }
