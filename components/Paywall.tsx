@@ -16,32 +16,33 @@ export default function Paywall({ visible, onClose, onPurchased }: Props) {
   useEffect(() => {
     async function loadOfferings() {
       try {
+        if (!Purchases) return;
         const offerings = await Purchases.getOfferings();
         const current = offerings.current;
         const first = current?.availablePackages?.[0];
         setPackageId(first?.identifier ?? null);
-      } catch (e) {
-        // ignore
+      } catch {
+        // Purchase UI is not part of the active PDF tools screen yet.
       }
     }
     if (visible) loadOfferings();
   }, [visible]);
 
   async function purchase() {
-    if (!packageId) {
+    if (!Purchases || !packageId) {
       Alert.alert('غير متاح', 'العرض غير متاح حاليًا.');
       return;
     }
     setLoading(true);
     try {
       const offerings = await Purchases.getOfferings();
-      const pkg = offerings.current?.availablePackages?.find(p => p.identifier === packageId);
+      const pkg = offerings.current?.availablePackages?.find((p: any) => p.identifier === packageId);
       if (!pkg) throw new Error('Package not found');
       const { customerInfo } = await Purchases.purchasePackage(pkg);
       const active = customerInfo?.entitlements?.active ?? {};
       if (active['pro'] || active['premium']) onPurchased();
-    } catch (e: any) {
-      // cancelled or failed
+    } catch {
+      // Cancelled or failed purchase. Billing will be rebuilt after PDF tools are validated.
     } finally {
       setLoading(false);
     }
@@ -52,7 +53,7 @@ export default function Paywall({ visible, onClose, onPurchased }: Props) {
       <View style={styles.overlay}>
         <View style={styles.sheet}>
           <Text style={styles.title}>ترقية إلى الإصدار المحترف</Text>
-          <Text style={styles.desc}>إزالة الإعلانات، صفحات غير محدودة، وضغط أفضل للصور.</Text>
+          <Text style={styles.desc}>إزالة الإعلانات وفتح الميزات المحترفة.</Text>
           <View style={styles.row}>
             <Pressable style={[styles.btn, styles.outline]} onPress={onClose} disabled={loading}>
               <Text style={styles.btnText}>لاحقًا</Text>
@@ -77,4 +78,3 @@ const styles = StyleSheet.create({
   outline: { backgroundColor: '#0000', borderWidth: 1, borderColor: '#2563eb' },
   btnText: { color: '#fff', fontWeight: '700' },
 });
-
