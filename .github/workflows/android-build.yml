@@ -1,6 +1,8 @@
 name: Android Build
 
 on:
+  push:
+    branches: [feat/pdf-pro-tools]
   pull_request:
     branches: [main]
   workflow_dispatch:
