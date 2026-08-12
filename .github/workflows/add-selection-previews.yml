@@ -20,7 +20,16 @@ jobs:
           fetch-depth: 0
 
       - name: Apply selected-file preview upgrade
-        run: python3 scripts/apply-selection-previews.py
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code = Path('scripts/apply-selection-previews.py').read_text()
+          workflow_block = """build_path = Path('.github/workflows/android-build.yml')\nbuild = build_path.read_text().replace('1.4.1', '1.4.2')\nbuild = build.replace(\"versionCode='6'\", \"versionCode='7'\").replace('versionCode=6', 'versionCode=7')\nbuild_path.write_text(build)\n\n"""
+          if workflow_block not in code:
+              raise SystemExit('workflow mutation block not found')
+          code = code.replace(workflow_block, '')
+          exec(compile(code, 'apply-selection-previews.py', 'exec'))
+          PY
 
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
@@ -32,6 +41,6 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add DashboardApp.tsx app.json .github/workflows/android-build.yml scripts/smoke-emulator.sh
+          git add DashboardApp.tsx app.json scripts/smoke-emulator.sh
           git commit -m 'feat(ui): add professional selected-file previews'
           git push origin HEAD:feat/pdf-pro-tools
