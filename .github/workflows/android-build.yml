@@ -129,7 +129,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            set -euo pipefail
+            set -eu
             adb devices -l | tee release-output/adb-devices.txt
             adb shell getprop sys.boot_completed | tee release-output/boot-completed.txt
 
