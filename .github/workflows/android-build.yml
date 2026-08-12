@@ -1,42 +1,167 @@
-name: Android Build
+name: Build and Validate PDF Pro APK
 
 on:
   push:
     branches: [feat/pdf-pro-tools]
+    paths:
+      - 'App.tsx'
+      - 'app.json'
+      - 'index.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'services/**'
+      - 'assets/**'
+      - '.github/workflows/android-build.yml'
   pull_request:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: pdf-pro-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  android-debug:
+  android-apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     env:
       CI: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '20'
           cache: npm
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare validation output
+        run: mkdir -p release-output
+
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run typecheck
+
       - name: Generate Android project
-        run: npx expo prebuild --platform android --clean
-      - name: Build debug APK
+        run: npx expo prebuild --platform android --clean --non-interactive
+
+      - name: Build installable debug APK
+        working-directory: android
         run: |
-          cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
-      - name: Upload APK
+
+      - name: Verify APK package, signature and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find android/app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" release-output/PDF-Pro-Tools-1.2.0.apk
+
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs release-output/PDF-Pro-Tools-1.2.0.apk | tee release-output/signature-verification.txt
+          sha256sum release-output/PDF-Pro-Tools-1.2.0.apk | tee release-output/PDF-Pro-Tools-1.2.0.sha256
+          unzip -t release-output/PDF-Pro-Tools-1.2.0.apk > release-output/zip-integrity.txt
+          "$BUILD_TOOLS/aapt" dump badging release-output/PDF-Pro-Tools-1.2.0.apk > release-output/apk-badging-full.txt
+
+          grep -q "package: name='com.codecsverige.pdf'" release-output/apk-badging-full.txt
+          grep -q "versionCode='3'" release-output/apk-badging-full.txt
+          grep -q "versionName='1.2.0'" release-output/apk-badging-full.txt
+
+          python3 - <<'PY'
+          import zipfile
+          path = 'release-output/PDF-Pro-Tools-1.2.0.apk'
+          with zipfile.ZipFile(path) as z:
+              names = z.namelist()
+              abis = sorted({name.split('/')[1] for name in names if name.startswith('lib/') and name.count('/') >= 2})
+              assert 'AndroidManifest.xml' in names
+              assert 'classes.dex' in names
+              assert 'arm64-v8a' in abis, f'arm64-v8a missing: {abis}'
+              print('ABIS=' + ','.join(abis))
+          PY
+
+          cat > release-output/build-identity.txt <<'EOF'
+          app=PDF Pro Tools
+          version=1.2.0
+          versionCode=3
+          androidPackage=com.codecsverige.pdf
+          build=debug-install-test
+          validation=signature+archive+badging+emulator-install-launch
+          EOF
+
+      - name: Free disk space before emulator
+        shell: bash
+        run: |
+          df -h
+          rm -rf android node_modules "$HOME/.gradle/caches" "$HOME/.npm/_cacache" || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost || true
+          df -h
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Install and launch APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          disk-size: 2048M
+          ram-size: 1536M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb devices -l | tee release-output/adb-devices.txt
+            adb shell getprop sys.boot_completed | tee release-output/boot-completed.txt
+
+            adb install -r release-output/PDF-Pro-Tools-1.2.0.apk | tee release-output/install-result.txt
+            grep -q 'Success' release-output/install-result.txt
+
+            adb logcat -c
+            adb shell monkey -p com.codecsverige.pdf -c android.intent.category.LAUNCHER 1 | tee release-output/launch-result.txt
+            sleep 12
+
+            PID="$(adb shell pidof com.codecsverige.pdf | tr -d '\r')"
+            echo "PID=$PID" | tee release-output/process.txt
+            test -n "$PID"
+
+            adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | tee release-output/window-focus.txt || true
+            grep -q 'com.codecsverige.pdf' release-output/window-focus.txt
+
+            adb logcat -d --pid="$PID" -t 700 > release-output/startup-logcat.txt || true
+            if grep -Eqi 'FATAL EXCEPTION|AndroidRuntime.*FATAL' release-output/startup-logcat.txt; then
+              cat release-output/startup-logcat.txt
+              exit 1
+            fi
+
+            echo 'APK_INSTALL=PASS' | tee release-output/validated.txt
+            echo 'APP_LAUNCH=PASS' | tee -a release-output/validated.txt
+            echo 'PROCESS_ALIVE=PASS' | tee -a release-output/validated.txt
+
+      - name: Upload validated APK and evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pdf-pro-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          name: PDF-Pro-Tools-1.2.0-validated
+          path: release-output/
+          if-no-files-found: warn
+          retention-days: 30
