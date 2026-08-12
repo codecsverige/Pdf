@@ -1,0 +1,242 @@
+name: Add selected file previews
+
+on:
+  push:
+    branches: [feat/pdf-pro-tools]
+    paths:
+      - '.github/workflows/add-selection-previews.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pdf-pro-tools
+          fetch-depth: 0
+
+      - name: Apply professional selected-file previews
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+
+          p = Path('DashboardApp.tsx')
+          s = p.read_text()
+
+          s = s.replace(
+            "type SelectedPdf = { uri: string; name: string; size?: number; pages?: number };",
+            "type SelectedPdf = { uri: string; name: string; size?: number; pages?: number; previewUri?: string; previewPending?: boolean };"
+          )
+
+          s = s.replace(
+            "  const [images, setImages] = useState<ImageInput[]>([]);\n",
+            "  const [images, setImages] = useState<ImageInput[]>([]);\n  const [selectionPreview, setSelectionPreview] = useState<{ uri: string; title: string } | null>(null);\n"
+          )
+
+          s = s.replace(
+            "  const lastBack = useRef(0);\n",
+            "  const lastBack = useRef(0);\n  const selectionGeneration = useRef(0);\n"
+          )
+
+          s = s.replace(
+            "  const resetWorkspace = useCallback((nextTool: ToolId | null = null) => {\n    setTool(nextTool);",
+            "  const resetWorkspace = useCallback((nextTool: ToolId | null = null) => {\n    selectionGeneration.current += 1;\n    setSelectionPreview(null);\n    setTool(nextTool);"
+          )
+
+          s = s.replace(
+            "    const sub = BackHandler.addEventListener('hardwareBackPress', () => {\n      if (viewerOpen) {",
+            "    const sub = BackHandler.addEventListener('hardwareBackPress', () => {\n      if (selectionPreview) {\n        setSelectionPreview(null);\n        return true;\n      }\n      if (viewerOpen) {"
+          )
+          s = s.replace(
+            "  }, [quickOpen, resetWorkspace, screen, tool, viewerOpen]);",
+            "  }, [quickOpen, resetWorkspace, screen, selectionPreview, tool, viewerOpen]);"
+          )
+
+          old_pick_pdf = '''  async function pickPdf(multiple: boolean) {\n    try {\n      const response = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', multiple, copyToCacheDirectory: true });\n      if (response.canceled || !response.assets?.length) return;\n      const next: SelectedPdf[] = response.assets.map(asset => ({ uri: asset.uri, name: asset.name || 'document.pdf', size: asset.size }));\n      if (!multiple) {\n        try {\n          next[0].pages = await getPdfPageCount(next[0].uri);\n        } catch (error) {\n          if (tool !== 'unlock') throw error;\n        }\n      }\n      setPdfs(next);\n      setResult(null);\n      setRendered([]);\n      setPreviewPage(1);\n      setPreviewUri(null);\n      setSaveNotice(null);\n    } catch (error) {\n      Alert.alert('Cannot open PDF', errorText(error));\n    }\n  }\n'''
+          new_pick_pdf = '''  async function pickPdf(multiple: boolean) {\n    try {\n      const response = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', multiple, copyToCacheDirectory: true });\n      if (response.canceled || !response.assets?.length) return;\n      const generation = ++selectionGeneration.current;\n      const next: SelectedPdf[] = response.assets.map((asset, index) => ({\n        uri: asset.uri,\n        name: asset.name || 'document.pdf',\n        size: asset.size,\n        previewPending: index < 12,\n      }));\n      if (!multiple) {\n        try {\n          next[0].pages = await getPdfPageCount(next[0].uri);\n        } catch (error) {\n          if (tool !== 'unlock') throw error;\n        }\n      }\n      setPdfs(next);\n      setResult(null);\n      setRendered([]);\n      setPreviewPage(1);\n      setPreviewUri(null);\n      setSelectionPreview(null);\n      setSaveNotice(null);\n\n      next.forEach((item, index) => {\n        void (async () => {\n          let pages = item.pages;\n          let previewUri: string | undefined;\n          if (!pages) {\n            try { pages = await getPdfPageCount(item.uri); } catch { /* protected PDFs can still be unlocked */ }\n          }\n          if (index < 12) {\n            try { previewUri = (await renderPreviewPage(item.uri, 0)).uri; } catch { /* visual fallback remains */ }\n          }\n          if (selectionGeneration.current !== generation) return;\n          setPdfs(current => current.map(existing => existing.uri === item.uri\n            ? { ...existing, pages: pages || existing.pages, previewUri, previewPending: false }\n            : existing));\n        })();\n      });\n    } catch (error) {\n      Alert.alert('Cannot open PDF', errorText(error));\n    }\n  }\n'''
+          if old_pick_pdf not in s:
+              raise SystemExit('pickPdf block not found')
+          s = s.replace(old_pick_pdf, new_pick_pdf)
+
+          old_move = '''  function movePdf(index: number, direction: -1 | 1) {\n    setPdfs(current => {\n      const target = index + direction;\n      if (target < 0 || target >= current.length) return current;\n      const next = [...current];\n      [next[index], next[target]] = [next[target], next[index]];\n      return next;\n    });\n  }\n'''
+          new_move = '''  function movePdf(index: number, direction: -1 | 1) {\n    setPdfs(current => {\n      const target = index + direction;\n      if (target < 0 || target >= current.length) return current;\n      const next = [...current];\n      [next[index], next[target]] = [next[target], next[index]];\n      return next;\n    });\n  }\n\n  function removePdf(index: number) {\n    setPdfs(current => current.filter((_, i) => i !== index));\n    setResult(null);\n    setPreviewUri(null);\n    setSelectionPreview(null);\n  }\n\n  function moveImage(index: number, direction: -1 | 1) {\n    setImages(current => {\n      const target = index + direction;\n      if (target < 0 || target >= current.length) return current;\n      const next = [...current];\n      [next[index], next[target]] = [next[target], next[index]];\n      return next;\n    });\n  }\n\n  function removeImage(index: number) {\n    setImages(current => current.filter((_, i) => i !== index));\n    setResult(null);\n    setSelectionPreview(null);\n  }\n'''
+          if old_move not in s:
+              raise SystemExit('movePdf block not found')
+          s = s.replace(old_move, new_move)
+
+          old_selection_ui = '''          {tool === 'images' ? <SelectButton icon="image-plus" label={images.length ? `${images.length} images selected` : 'Choose images'} onPress={pickImages} /> : null}\n          {tool === 'camera' ? <SelectButton icon="camera-plus-outline" label={images.length ? `Capture another page · ${images.length} ready` : 'Capture first page'} onPress={capturePage} /> : null}\n          {tool !== 'images' && tool !== 'camera' ? <SelectButton icon="file-plus-outline" label={tool === 'merge' ? 'Choose PDF files' : 'Choose PDF'} onPress={() => pickPdf(tool === 'merge')} /> : null}\n\n          {tool === 'camera' && images.length ? (\n            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.thumbScroll}>\n              {images.slice(0, 8).map((item, index) => <Image key={`${item.uri}-${index}`} source={{ uri: item.uri }} style={styles.thumb} />)}\n              <Pressable style={styles.undoCard} onPress={() => setImages(current => current.slice(0, -1))}><Icon name="undo" color="#B42318" /><Text style={styles.undoText}>Undo</Text></Pressable>\n            </ScrollView>\n          ) : null}\n\n          {pdfs.map((pdf, index) => (\n            <View key={`${pdf.uri}-${index}`} style={styles.fileRow}>\n              <View style={styles.pdfBadge}><Icon name="file-pdf-box" size={27} color={BRAND} /></View>\n              <View style={{ flex: 1, minWidth: 0 }}>\n                <Text style={styles.fileName} numberOfLines={1}>{pdf.name}</Text>\n                <Text style={styles.fileMeta}>{[fmt(pdf.size), pdf.pages ? `${pdf.pages} pages` : ''].filter(Boolean).join(' · ') || 'PDF file'}</Text>\n              </View>\n              {tool === 'merge' ? (\n                <View style={styles.rowActions}>\n                  <Mini icon="arrow-up" onPress={() => movePdf(index, -1)} disabled={index === 0} />\n                  <Mini icon="arrow-down" onPress={() => movePdf(index, 1)} disabled={index === pdfs.length - 1} />\n                  <Mini icon="close" danger onPress={() => setPdfs(current => current.filter((_, i) => i !== index))} />\n                </View>\n              ) : null}\n            </View>\n          ))}\n'''
+          new_selection_ui = '''          {tool === 'images' ? <SelectButton icon="image-plus" label={images.length ? `${images.length} images selected · choose again` : 'Choose images'} onPress={pickImages} /> : null}\n          {tool === 'camera' ? <SelectButton icon="camera-plus-outline" label={images.length ? `Capture another page · ${images.length} ready` : 'Capture first page'} onPress={capturePage} /> : null}\n          {tool !== 'images' && tool !== 'camera' ? <SelectButton icon="file-plus-outline" label={pdfs.length ? (tool === 'merge' ? `${pdfs.length} PDFs selected · choose again` : 'Change selected PDF') : (tool === 'merge' ? 'Choose PDF files' : 'Choose PDF')} onPress={() => pickPdf(tool === 'merge')} /> : null}\n\n          {images.length ? (\n            <ImageSelectionPreview\n              images={images}\n              onMove={moveImage}\n              onRemove={removeImage}\n              onOpen={(item, index) => setSelectionPreview({ uri: item.uri, title: `Page ${index + 1}` })}\n            />\n          ) : null}\n\n          {pdfs.length ? (\n            <PdfSelectionPreview\n              pdfs={pdfs}\n              multiple={tool === 'merge'}\n              onMove={movePdf}\n              onRemove={removePdf}\n              onOpen={pdf => pdf.previewUri && setSelectionPreview({ uri: pdf.previewUri, title: pdf.name })}\n            />\n          ) : null}\n'''
+          if old_selection_ui not in s:
+              raise SystemExit('selection UI block not found')
+          s = s.replace(old_selection_ui, new_selection_ui)
+
+          s = s.replace(
+            "        <ViewerModal open={viewerOpen} output={viewerSource} page={viewerPage} uri={viewerUri} busy={viewerBusy} onClose={() => setViewerOpen(false)} onPage={p => viewerSource && renderViewerPage(viewerSource, p)} onDownload={() => viewerSource && downloadOutput(viewerSource, false)} />\n      </SafeAreaView>",
+            "        <SelectionPreviewModal preview={selectionPreview} onClose={() => setSelectionPreview(null)} />\n        <ViewerModal open={viewerOpen} output={viewerSource} page={viewerPage} uri={viewerUri} busy={viewerBusy} onClose={() => setViewerOpen(false)} onPage={p => viewerSource && renderViewerPage(viewerSource, p)} onDownload={() => viewerSource && downloadOutput(viewerSource, false)} />\n      </SafeAreaView>",
+            1
+          )
+
+          component_marker = "function ToolHeader({ tool, onBack }: { tool: Tool; onBack: () => void }) {"
+          components = r'''function PdfSelectionPreview({ pdfs, multiple, onMove, onRemove, onOpen }: { pdfs: SelectedPdf[]; multiple: boolean; onMove: (index: number, direction: -1 | 1) => void; onRemove: (index: number) => void; onOpen: (pdf: SelectedPdf) => void }) {
+  return (
+    <View style={styles.selectionPanel}>
+      <View style={styles.selectionHeader}>
+        <View style={styles.selectionHeaderIcon}><Icon name="file-eye-outline" size={18} color={BRAND} /></View>
+        <View style={{ flex: 1 }}><Text style={styles.selectionTitle}>{multiple ? 'Selected documents' : 'Selected document'}</Text><Text style={styles.selectionSub}>{multiple ? 'Preview the first page and confirm the order' : 'Tap the page to view it larger'}</Text></View>
+        <View style={styles.selectionCount}><Text style={styles.selectionCountText}>{pdfs.length}</Text></View>
+      </View>
+      {multiple ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pdfPreviewStrip}>
+          {pdfs.map((pdf, index) => <PdfPreviewCard key={`${pdf.uri}-${index}`} pdf={pdf} index={index} total={pdfs.length} onMove={onMove} onRemove={onRemove} onOpen={onOpen} />)}
+        </ScrollView>
+      ) : (
+        <View style={styles.singlePdfPreviewWrap}><PdfPreviewCard pdf={pdfs[0]} index={0} total={1} large onMove={onMove} onRemove={onRemove} onOpen={onOpen} /></View>
+      )}
+    </View>
+  );
+}
+
+function PdfPreviewCard({ pdf, index, total, large, onMove, onRemove, onOpen }: { pdf: SelectedPdf; index: number; total: number; large?: boolean; onMove: (index: number, direction: -1 | 1) => void; onRemove: (index: number) => void; onOpen: (pdf: SelectedPdf) => void }) {
+  const canOpen = Boolean(pdf.previewUri);
+  return (
+    <View style={[styles.pdfPreviewCard, large && styles.pdfPreviewCardLarge]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Preview ${pdf.name}`} disabled={!canOpen} onPress={() => onOpen(pdf)} style={[styles.pdfPreviewPaper, large && styles.pdfPreviewPaperLarge]}>
+        {pdf.previewUri ? <Image source={{ uri: pdf.previewUri }} style={styles.pdfPreviewImage} resizeMode="contain" /> : pdf.previewPending ? <ActivityIndicator color={BRAND} /> : <View style={styles.pdfPreviewFallback}><Icon name="file-pdf-box" size={large ? 46 : 36} color={BRAND} /><Text style={styles.pdfPreviewFallbackText}>PDF</Text></View>}
+        <View style={styles.previewNumber}><Text style={styles.previewNumberText}>{index + 1}</Text></View>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${pdf.name}`} hitSlop={8} style={styles.previewRemove} onPress={() => onRemove(index)}><Icon name="close" size={15} color="#344054" /></Pressable>
+        {canOpen ? <View style={styles.tapPreviewBadge}><Icon name="arrow-expand" size={11} color="#FFFFFF" /><Text style={styles.tapPreviewText}>Preview</Text></View> : null}
+      </Pressable>
+      <Text style={[styles.previewFileName, large && styles.previewFileNameLarge]} numberOfLines={1}>{pdf.name}</Text>
+      <Text style={styles.previewFileMeta}>{[fmt(pdf.size), pdf.pages ? `${pdf.pages} pages` : null].filter(Boolean).join(' · ') || 'PDF document'}</Text>
+      {total > 1 ? <View style={styles.previewControls}><Mini icon="arrow-left" onPress={() => onMove(index, -1)} disabled={index === 0} /><Mini icon="arrow-right" onPress={() => onMove(index, 1)} disabled={index === total - 1} /></View> : null}
+    </View>
+  );
+}
+
+function ImageSelectionPreview({ images, onMove, onRemove, onOpen }: { images: ImageInput[]; onMove: (index: number, direction: -1 | 1) => void; onRemove: (index: number) => void; onOpen: (image: ImageInput, index: number) => void }) {
+  return (
+    <View style={styles.selectionPanel}>
+      <View style={styles.selectionHeader}>
+        <View style={[styles.selectionHeaderIcon, { backgroundColor: '#EEF6FF' }]}><Icon name="image-multiple-outline" size={18} color="#2563EB" /></View>
+        <View style={{ flex: 1 }}><Text style={styles.selectionTitle}>Selected pages</Text><Text style={styles.selectionSub}>Check the images and arrange them before creating the PDF</Text></View>
+        <View style={[styles.selectionCount, { backgroundColor: '#E8F1FF' }]}><Text style={[styles.selectionCountText, { color: '#2563EB' }]}>{images.length}</Text></View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.imagePreviewStrip}>
+        {images.map((item, index) => (
+          <View key={`${item.uri}-${index}`} style={styles.imagePreviewCard}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Preview page ${index + 1}`} onPress={() => onOpen(item, index)} style={styles.imagePreviewFrame}>
+              <Image source={{ uri: item.uri }} style={styles.imagePreviewImage} resizeMode="contain" />
+              <View style={[styles.previewNumber, { backgroundColor: '#2563EB' }]}><Text style={styles.previewNumberText}>{index + 1}</Text></View>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Remove page ${index + 1}`} hitSlop={8} style={styles.previewRemove} onPress={() => onRemove(index)}><Icon name="close" size={15} color="#344054" /></Pressable>
+              <View style={styles.tapPreviewBadge}><Icon name="arrow-expand" size={11} color="#FFFFFF" /><Text style={styles.tapPreviewText}>Preview</Text></View>
+            </Pressable>
+            <View style={styles.previewControls}><Mini icon="arrow-left" onPress={() => onMove(index, -1)} disabled={index === 0} /><Mini icon="arrow-right" onPress={() => onMove(index, 1)} disabled={index === images.length - 1} /></View>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function SelectionPreviewModal({ preview, onClose }: { preview: { uri: string; title: string } | null; onClose: () => void }) {
+  return (
+    <Modal visible={Boolean(preview)} animationType="fade" onRequestClose={onClose}>
+      <SafeAreaView style={styles.selectionModalSafe}>
+        <StatusBar style="dark" />
+        <View style={styles.selectionModalHeader}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close preview" style={styles.backButton} onPress={onClose}><Icon name="arrow-left" color={INK} /></Pressable>
+          <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.selectionModalTitle} numberOfLines={1}>{preview?.title || 'Preview'}</Text><Text style={styles.selectionModalSub}>Selected file preview</Text></View>
+          <View style={styles.selectionModalBadge}><Icon name="eye-outline" size={16} color="#2563EB" /><Text style={styles.selectionModalBadgeText}>Preview</Text></View>
+        </View>
+        <View style={styles.selectionModalCanvas}>{preview?.uri ? <Image source={{ uri: preview.uri }} style={styles.selectionModalImage} resizeMode="contain" /> : null}</View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+'''
+          if component_marker not in s:
+              raise SystemExit('ToolHeader marker not found')
+          s = s.replace(component_marker, components + component_marker)
+
+          style_marker = "  thumbScroll: { marginTop: 10 },"
+          new_styles = r'''  selectionPanel: { marginTop: 11, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E4E7EC', padding: 12, shadowColor: '#101828', shadowOpacity: 0.035, shadowRadius: 12, elevation: 1 },
+  selectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 11 },
+  selectionHeaderIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#FFF0F1', alignItems: 'center', justifyContent: 'center' },
+  selectionTitle: { color: INK, fontSize: 12.5, fontWeight: '900' },
+  selectionSub: { color: '#98A2B3', fontSize: 9.2, marginTop: 2 },
+  selectionCount: { minWidth: 30, height: 30, borderRadius: 10, backgroundColor: '#FFF0F1', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
+  selectionCountText: { color: BRAND, fontSize: 10.5, fontWeight: '900' },
+  pdfPreviewStrip: { gap: 11, paddingRight: 3, paddingBottom: 2 },
+  singlePdfPreviewWrap: { alignItems: 'center', paddingTop: 2, paddingBottom: 1 },
+  pdfPreviewCard: { width: 132 },
+  pdfPreviewCardLarge: { width: 196 },
+  pdfPreviewPaper: { width: 132, aspectRatio: 0.707, borderRadius: 14, borderWidth: 1, borderColor: '#DDE1E8', backgroundColor: '#F2F4F7', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', shadowColor: '#101828', shadowOpacity: 0.08, shadowRadius: 7, elevation: 2 },
+  pdfPreviewPaperLarge: { width: 196, borderRadius: 17 },
+  pdfPreviewImage: { width: '100%', height: '100%', backgroundColor: '#FFFFFF' },
+  pdfPreviewFallback: { alignItems: 'center', justifyContent: 'center', gap: 5 },
+  pdfPreviewFallbackText: { color: '#98A2B3', fontSize: 9.5, fontWeight: '900' },
+  previewNumber: { position: 'absolute', left: 7, top: 7, minWidth: 24, height: 24, borderRadius: 8, paddingHorizontal: 6, backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.12, shadowRadius: 4, elevation: 2 },
+  previewNumberText: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
+  previewRemove: { position: 'absolute', right: 7, top: 7, width: 27, height: 27, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.94)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#EAECF0', elevation: 2 },
+  tapPreviewBadge: { position: 'absolute', right: 7, bottom: 7, minHeight: 25, borderRadius: 9, backgroundColor: 'rgba(17,24,39,0.82)', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7 },
+  tapPreviewText: { color: '#FFFFFF', fontSize: 8, fontWeight: '900' },
+  previewFileName: { color: INK, fontSize: 10.6, fontWeight: '900', marginTop: 7 },
+  previewFileNameLarge: { fontSize: 11.5, textAlign: 'center' },
+  previewFileMeta: { color: '#98A2B3', fontSize: 8.8, marginTop: 2, textAlign: 'center' },
+  previewControls: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 7 },
+  imagePreviewStrip: { gap: 10, paddingRight: 3, paddingBottom: 2 },
+  imagePreviewCard: { width: 106 },
+  imagePreviewFrame: { width: 106, height: 142, borderRadius: 14, borderWidth: 1, borderColor: '#DDE1E8', backgroundColor: '#F2F4F7', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', shadowColor: '#101828', shadowOpacity: 0.07, shadowRadius: 7, elevation: 2 },
+  imagePreviewImage: { width: '100%', height: '100%', backgroundColor: '#FFFFFF' },
+  selectionModalSafe: { flex: 1, backgroundColor: '#F4F6FA' },
+  selectionModalHeader: { minHeight: 66, backgroundColor: '#FFFFFF', borderBottomWidth: 1, borderBottomColor: LINE, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 13 },
+  selectionModalTitle: { color: INK, fontSize: 14.5, fontWeight: '900' },
+  selectionModalSub: { color: '#98A2B3', fontSize: 8.8, marginTop: 1 },
+  selectionModalBadge: { height: 34, borderRadius: 11, backgroundColor: '#EEF6FF', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9 },
+  selectionModalBadgeText: { color: '#2563EB', fontSize: 8.8, fontWeight: '900' },
+  selectionModalCanvas: { flex: 1, margin: 12, borderRadius: 20, backgroundColor: '#DDE1E8', borderWidth: 1, borderColor: '#D0D5DD', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  selectionModalImage: { width: '100%', height: '100%' },
+'''
+          if style_marker not in s:
+              raise SystemExit('style marker not found')
+          s = s.replace(style_marker, new_styles + style_marker)
+
+          p.write_text(s)
+
+          # Version bump.
+          app_path = Path('app.json')
+          app = json.loads(app_path.read_text())
+          app['expo']['version'] = '1.4.2'
+          app['expo']['android']['versionCode'] = 7
+          app_path.write_text(json.dumps(app, indent=2) + '\n')
+
+          # Keep release validation aligned with the new version.
+          build_path = Path('.github/workflows/android-build.yml')
+          build = build_path.read_text()
+          build = build.replace('1.4.1', '1.4.2').replace("versionCode='6'", "versionCode='7'").replace('versionCode=6', 'versionCode=7')
+          build_path.write_text(build)
+
+          smoke_path = Path('scripts/smoke-emulator.sh')
+          smoke = smoke_path.read_text().replace('1.4.1', '1.4.2').replace('INSTALLED_CODE\" = \"6', 'INSTALLED_CODE\" = \"7')
+          # The quoted replacement above is defensive; replace the direct test too.
+          smoke = smoke.replace('test "$INSTALLED_CODE" = "6"', 'test "$INSTALLED_CODE" = "7"')
+          smoke_path.write_text(smoke)
+          PY
+
+      - name: Validate TypeScript before commit
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+
+      - name: Commit previews
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add DashboardApp.tsx app.json .github/workflows/android-build.yml scripts/smoke-emulator.sh
+          git commit -m 'feat(ui): add professional selected-file previews'
+          git push origin HEAD:feat/pdf-pro-tools
