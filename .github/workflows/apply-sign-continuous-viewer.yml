@@ -1,0 +1,37 @@
+name: Apply sign and continuous viewer upgrade
+
+on:
+  push:
+    branches: [feat/pdf-pro-tools]
+    paths:
+      - '.github/workflows/apply-sign-continuous-viewer.yml'
+      - 'scripts/apply-sign-continuous-viewer.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pdf-pro-tools
+          fetch-depth: 0
+
+      - name: Apply upgrade
+        run: python3 scripts/apply-sign-continuous-viewer.py
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Validate TypeScript
+        run: npm run typecheck
+
+      - name: Commit feature files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add DashboardApp.tsx app.json scripts/smoke-emulator.sh
+          git commit -m 'feat(sign): interactive placement and continuous PDF viewer'
+          git push origin HEAD:feat/pdf-pro-tools
