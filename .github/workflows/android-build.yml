@@ -55,19 +55,21 @@ jobs:
         run: npm run typecheck
 
       - name: Generate Android project
-        run: npx expo prebuild --platform android --clean --non-interactive
+        run: npx expo prebuild --platform android --clean
 
-      - name: Build installable debug APK
+      - name: Build standalone release APK
         working-directory: android
+        env:
+          NODE_ENV: production
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
       - name: Verify APK package, signature and archive
         shell: bash
         run: |
           set -euo pipefail
-          APK="$(find android/app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          APK="$(find android/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
           test -n "$APK"
           cp "$APK" release-output/PDF-Pro-Tools-1.2.0.apk
 
@@ -98,7 +100,7 @@ jobs:
           version=1.2.0
           versionCode=3
           androidPackage=com.codecsverige.pdf
-          build=debug-install-test
+          build=standalone-release
           validation=signature+archive+badging+emulator-install-launch
           EOF
 
