@@ -9,7 +9,8 @@
     "start": "npx expo start",
     "android": "npx expo run:android",
     "ios": "npx expo run:ios",
-    "web": "npx expo start --web"
+    "web": "npx expo start --web",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "expo": "~54.0.10",
@@ -34,7 +35,10 @@
   "expo": {
     "autolinking": {
       "android": {
-        "exclude": ["react-native-google-mobile-ads"]
+        "exclude": [
+          "react-native-google-mobile-ads",
+          "react-native-purchases"
+        ]
       }
     }
   },
