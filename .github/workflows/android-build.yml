@@ -6,6 +6,7 @@ on:
     paths:
       - 'App.tsx'
       - 'ProApp.tsx'
+      - 'DashboardApp.tsx'
       - 'app.json'
       - 'index.ts'
       - 'package.json'
@@ -34,7 +35,7 @@ jobs:
     timeout-minutes: 50
     env:
       CI: true
-      APK_NAME: PDF-Pro-Tools-1.4.0.apk
+      APK_NAME: PDF-Pro-Tools-1.4.1.apk
       BASELINE_APK_NAME: PDF-Pro-Tools-1.3.0-baseline.apk
     steps:
       - name: Checkout
@@ -87,17 +88,17 @@ jobs:
 
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "release-output/$APK_NAME" | tee release-output/signature-verification.txt
-          sha256sum "release-output/$APK_NAME" | tee release-output/PDF-Pro-Tools-1.4.0.sha256
+          sha256sum "release-output/$APK_NAME" | tee release-output/PDF-Pro-Tools-1.4.1.sha256
           unzip -t "release-output/$APK_NAME" > release-output/zip-integrity.txt
           "$BUILD_TOOLS/aapt" dump badging "release-output/$APK_NAME" > release-output/apk-badging-full.txt
 
           grep -q "package: name='com.codecsverige.pdf'" release-output/apk-badging-full.txt
-          grep -q "versionCode='5'" release-output/apk-badging-full.txt
-          grep -q "versionName='1.4.0'" release-output/apk-badging-full.txt
+          grep -q "versionCode='6'" release-output/apk-badging-full.txt
+          grep -q "versionName='1.4.1'" release-output/apk-badging-full.txt
 
           python3 - <<'PY'
           import zipfile
-          path = 'release-output/PDF-Pro-Tools-1.4.0.apk'
+          path = 'release-output/PDF-Pro-Tools-1.4.1.apk'
           with zipfile.ZipFile(path) as z:
               names = z.namelist()
               abis = sorted({name.split('/')[1] for name in names if name.startswith('lib/') and name.count('/') >= 2})
@@ -109,8 +110,8 @@ jobs:
 
           cat > release-output/build-identity.txt <<'EOF'
           app=PDF Pro
-          version=1.4.0
-          versionCode=5
+          version=1.4.1
+          versionCode=6
           androidPackage=com.codecsverige.pdf
           build=standalone-release
           validation=signature+archive+badging+baseline-upgrade+emulator-launch
@@ -164,7 +165,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      - name: Upgrade from 1.3.0 and launch 1.4.0 on Android emulator
+      - name: Upgrade from 1.3.0 and launch 1.4.1 on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
@@ -181,7 +182,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PDF-Pro-Tools-1.4.0-validated
+          name: PDF-Pro-Tools-1.4.1-validated
           path: release-output/
           if-no-files-found: warn
           retention-days: 30
