@@ -1,4 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
+import { saveToDownloadsNative } from './nativePdf';
 
 export type SavePreferences = {
   directoryUri: string | null;
@@ -47,6 +49,18 @@ async function writeToDirectory(sourceUri: string, fileName: string, mimeType: s
   return destination;
 }
 
+async function writeDirectDownload(sourceUri: string, fileName: string, mimeType: string): Promise<SavedFile | null> {
+  if (Platform.OS !== 'android') return null;
+  try {
+    const saved = await saveToDownloadsNative(sourceUri, safeFileName(fileName, 'PDF-Pro-file'), mimeType);
+    return { uri: saved.uri, directoryUri: '' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    if (/Android 10|Save As/i.test(message)) return null;
+    throw error;
+  }
+}
+
 export async function getSavePreferences(): Promise<SavePreferences> {
   if (!preferencesFile) return DEFAULT_PREFERENCES;
   try {
@@ -55,7 +69,7 @@ export async function getSavePreferences(): Promise<SavePreferences> {
     const raw = await FileSystem.readAsStringAsync(preferencesFile);
     const parsed = JSON.parse(raw) as Partial<SavePreferences>;
     return {
-      directoryUri: typeof parsed.directoryUri === 'string' ? parsed.directoryUri : null,
+      directoryUri: typeof parsed.directoryUri === 'string' && parsed.directoryUri ? parsed.directoryUri : null,
       autoSave: parsed.autoSave === true,
     };
   } catch {
@@ -90,10 +104,13 @@ export async function savePdfToPreferredFolder(
     try {
       return await savePdfToDirectory(sourceUri, fileName, preferredDirectoryUri);
     } catch {
-      // Android can revoke a persisted SAF grant after storage changes or app restore.
-      // Fall through to the native folder picker and refresh the remembered URI.
+      // Android can revoke a persisted SAF grant. Fall back to direct Downloads or a fresh picker.
     }
   }
+
+  const direct = await writeDirectDownload(sourceUri, fileName, 'application/pdf');
+  if (direct) return direct;
+
   const directoryUri = await chooseSaveFolder(preferredDirectoryUri);
   return savePdfToDirectory(sourceUri, fileName, directoryUri);
 }
@@ -113,6 +130,23 @@ async function saveImagesToDirectory(images: { uri: string; page: number }[], di
   return { uris: saved, directoryUri };
 }
 
+async function saveImagesDirectly(images: { uri: string; page: number }[]) {
+  if (Platform.OS !== 'android' || !images.length) return null;
+  const uris: string[] = [];
+  try {
+    for (const item of images) {
+      const name = `PDF-Pro-page_${item.page.toString().padStart(3, '0')}.jpg`;
+      const saved = await saveToDownloadsNative(item.uri, name, 'image/jpeg');
+      uris.push(saved.uri);
+    }
+    return { uris, directoryUri: '' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    if (/Android 10|Save As/i.test(message)) return null;
+    throw error;
+  }
+}
+
 export async function saveImagesToPreferredFolder(
   images: { uri: string; page: number }[],
   preferredDirectoryUri?: string | null,
@@ -121,9 +155,13 @@ export async function saveImagesToPreferredFolder(
     try {
       return await saveImagesToDirectory(images, preferredDirectoryUri);
     } catch {
-      // Ask again if the old SAF grant is no longer valid.
+      // Ask again or use Downloads if the old SAF grant is no longer valid.
     }
   }
+
+  const direct = await saveImagesDirectly(images);
+  if (direct) return direct;
+
   const directoryUri = await chooseSaveFolder(preferredDirectoryUri);
   return saveImagesToDirectory(images, directoryUri);
 }
