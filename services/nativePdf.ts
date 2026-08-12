@@ -17,6 +17,12 @@ type NativeRenderResult = {
   bytes: number;
 };
 
+type NativeDownloadResult = {
+  uri: string;
+  bytes: number;
+  folder: string;
+};
+
 type NativePdfModule = {
   protectPdf(inputUri: string, outputPath: string, password: string): Promise<NativeFileResult>;
   removePassword(inputUri: string, outputPath: string, password: string): Promise<NativeFileResult>;
@@ -24,6 +30,7 @@ type NativePdfModule = {
   renderPage(inputUri: string, pageIndex: number, outputPath: string, dpi: number, quality: number, password?: string): Promise<NativeFileResult>;
   renderAllPages(inputUri: string, outputDir: string, dpi: number, quality: number, password?: string): Promise<NativeRenderResult[]>;
   inspectPdf(inputUri: string, password?: string): Promise<{ pageCount: number; encrypted: boolean; title: string; author: string }>;
+  saveToDownloads(inputUri: string, fileName: string, mimeType: string): Promise<NativeDownloadResult>;
 };
 
 let cachedModule: NativePdfModule | null = null;
@@ -85,4 +92,8 @@ export async function pdfToImagesNative(uri: string, password = '') {
 
 export async function inspectPdfNative(uri: string, password = '') {
   return nativeModule().inspectPdf(uri, password || undefined);
+}
+
+export async function saveToDownloadsNative(uri: string, fileName: string, mimeType: string) {
+  return nativeModule().saveToDownloads(uri, fileName, mimeType);
 }
