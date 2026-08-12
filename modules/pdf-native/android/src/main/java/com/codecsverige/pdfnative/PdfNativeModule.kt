@@ -1,7 +1,11 @@
 package com.codecsverige.pdfnative
 
+import android.content.ContentValues
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
@@ -117,6 +121,10 @@ class PdfNativeModule : Module() {
       }
       rasterCompress(inputUri, outputPath, settings.first, settings.second)
     }
+
+    AsyncFunction("saveToDownloads") { inputUri: String, fileName: String, mimeType: String ->
+      saveToDownloads(inputUri, fileName, mimeType)
+    }
   }
 
   private fun initialize() {
@@ -148,6 +156,51 @@ class PdfNativeModule : Module() {
       "bytes" to file.length(),
       "pageCount" to pageCount
     )
+  }
+
+  private fun saveToDownloads(inputUri: String, requestedName: String, mimeType: String): Map<String, Any> {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+      throw IllegalStateException("Direct Downloads requires Android 10 or newer. Use Save As to choose a folder.")
+    }
+
+    val context = appContext.reactContext ?: throw IllegalStateException("Android context is unavailable.")
+    val source = File(pathFromUri(inputUri))
+    require(source.exists()) { "The generated file was not found." }
+
+    val safeName = requestedName
+      .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+      .trim()
+      .ifEmpty { if (mimeType == "application/pdf") "PDF-Pro-document.pdf" else "PDF-Pro-file" }
+
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+      put(MediaStore.MediaColumns.DISPLAY_NAME, safeName)
+      put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+      put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/PDF Pro")
+      put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+
+    val outputUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+      ?: throw IllegalStateException("Android could not create the file in Downloads.")
+
+    try {
+      resolver.openOutputStream(outputUri, "w")?.use { output ->
+        source.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
+      } ?: throw IllegalStateException("Android could not open the Downloads destination.")
+
+      values.clear()
+      values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+      resolver.update(outputUri, values, null, null)
+
+      return mapOf(
+        "uri" to outputUri.toString(),
+        "bytes" to source.length(),
+        "folder" to "Downloads/PDF Pro"
+      )
+    } catch (error: Throwable) {
+      resolver.delete(outputUri, null, null)
+      throw error
+    }
   }
 
   private fun writeJpeg(bitmap: Bitmap, outputPath: String, quality: Int) {
