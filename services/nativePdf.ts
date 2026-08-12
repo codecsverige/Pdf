@@ -47,23 +47,14 @@ function cachePath(prefix: string, extension: string) {
 }
 
 function toOutput(result: NativeFileResult, fileName: string): PdfOutput {
-  return {
-    uri: result.uri,
-    fileName,
-    pageCount: result.pageCount,
-    bytes: result.bytes,
-  };
+  return { uri: result.uri, fileName, pageCount: result.pageCount, bytes: result.bytes };
 }
 
 export async function compressPdfNative(uri: string, mode: 'balanced' | 'strong' | 'extreme') {
   const fileName = `compressed_${mode}_${Date.now()}.pdf`;
   const output = cachePath(`compressed_${mode}`, 'pdf');
   const result = await nativeModule().compressPdf(uri, output, mode);
-  return {
-    ...toOutput(result, fileName),
-    originalBytes: result.originalBytes ?? 0,
-    flattened: Boolean(result.flattened),
-  };
+  return { ...toOutput(result, fileName), originalBytes: result.originalBytes ?? 0, flattened: Boolean(result.flattened) };
 }
 
 export async function protectPdfNative(uri: string, password: string) {
@@ -81,6 +72,13 @@ export async function unlockPdfNative(uri: string, password: string) {
 export async function renderPreviewPage(uri: string, pageIndex: number, password = '') {
   const output = cachePath(`preview_${pageIndex + 1}`, 'jpg');
   return nativeModule().renderPage(uri, pageIndex, output, 120, 86, password || undefined);
+}
+
+export async function renderAllPreviewPages(uri: string, password = '') {
+  if (!FileSystem.cacheDirectory) throw new Error('App cache directory is unavailable.');
+  const outputDir = `${FileSystem.cacheDirectory}pdf_preview_${Date.now()}`;
+  await FileSystem.makeDirectoryAsync(outputDir, { intermediates: true });
+  return nativeModule().renderAllPages(uri, outputDir, 105, 82, password || undefined);
 }
 
 export async function pdfToImagesNative(uri: string, password = '') {
