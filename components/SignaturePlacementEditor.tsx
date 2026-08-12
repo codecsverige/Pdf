@@ -83,6 +83,16 @@ export default function SignaturePlacementEditor({ pageUri, busy, signaturePath,
     };
   }
 
+  useEffect(() => {
+    if (!signaturePath) return;
+    const current = placementRef.current;
+    const next = normalized(current);
+    if (Math.abs(next.x - current.x) > 0.001 || Math.abs(next.y - current.y) > 0.001 || Math.abs(next.width - current.width) > 0.001) {
+      placementRef.current = next;
+      onChange(next);
+    }
+  }, [onChange, pageRatio, signaturePath, signatureRatio]);
+
   const panResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => Boolean(signaturePath),
     onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,
