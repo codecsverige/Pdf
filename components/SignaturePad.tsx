@@ -14,10 +14,10 @@ function distance(a: Point, b: Point) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-function buildSvgPath(strokes: Stroke[], height: number) {
+function buildSvgPath(strokes: Stroke[]) {
   return strokes
     .filter(stroke => stroke.length > 1)
-    .map(stroke => stroke.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${(height - point.y).toFixed(1)}`).join(' '))
+    .map(stroke => stroke.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' '))
     .join(' ');
 }
 
@@ -27,7 +27,9 @@ export default function SignaturePad({ onChange }: Props) {
   const sizeRef = useRef(size);
 
   useEffect(() => {
-    onChange(buildSvgPath(strokes, size.height), size.width, size.height);
+    // pdf-lib's drawSvgPath already converts SVG's downward Y axis to PDF coordinates.
+    // Keep the path in the exact touch-coordinate system so the saved signature matches the pad.
+    onChange(buildSvgPath(strokes), size.width, size.height);
   }, [strokes, size, onChange]);
 
   useEffect(() => {
