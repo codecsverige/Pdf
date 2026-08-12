@@ -10,6 +10,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'services/**'
+      - 'scripts/**'
       - 'assets/**'
       - '.github/workflows/android-build.yml'
   pull_request:
@@ -130,34 +131,7 @@ jobs:
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: |
-            set -eu
-            adb devices -l | tee release-output/adb-devices.txt
-            adb shell getprop sys.boot_completed | tee release-output/boot-completed.txt
-
-            adb install -r release-output/PDF-Pro-Tools-1.2.0.apk | tee release-output/install-result.txt
-            grep -q 'Success' release-output/install-result.txt
-
-            adb logcat -c
-            adb shell monkey -p com.codecsverige.pdf -c android.intent.category.LAUNCHER 1 | tee release-output/launch-result.txt
-            sleep 12
-
-            PID="$(adb shell pidof com.codecsverige.pdf | tr -d '\r')"
-            echo "PID=$PID" | tee release-output/process.txt
-            test -n "$PID"
-
-            adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | tee release-output/window-focus.txt || true
-            grep -q 'com.codecsverige.pdf' release-output/window-focus.txt
-
-            adb logcat -d --pid="$PID" -t 700 > release-output/startup-logcat.txt || true
-            if grep -Eqi 'FATAL EXCEPTION|AndroidRuntime.*FATAL' release-output/startup-logcat.txt; then
-              cat release-output/startup-logcat.txt
-              exit 1
-            fi
-
-            echo 'APK_INSTALL=PASS' | tee release-output/validated.txt
-            echo 'APP_LAUNCH=PASS' | tee -a release-output/validated.txt
-            echo 'PROCESS_ALIVE=PASS' | tee -a release-output/validated.txt
+          script: bash scripts/smoke-emulator.sh
 
       - name: Upload validated APK and evidence
         if: always()
