@@ -52,8 +52,19 @@ if grep -Eqi 'FATAL EXCEPTION|AndroidRuntime.*FATAL' release-output/startup-logc
   exit 1
 fi
 
+# Regression test for the user's back-button bug. On the home screen the
+# first BACK press must be intercepted by React Native and must not exit.
+adb shell input keyevent 4
+sleep 2
+PID_AFTER_BACK="$(adb shell pidof "$PACKAGE" | tr -d '\r' || true)"
+echo "PID_AFTER_FIRST_BACK=$PID_AFTER_BACK" | tee release-output/back-button.txt
+adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' | tee -a release-output/back-button.txt || true
+test -n "$PID_AFTER_BACK"
+grep -q "$PACKAGE" release-output/back-button.txt
+
 echo 'BASELINE_INSTALL=PASS' | tee release-output/validated.txt
 echo 'UPDATE_INSTALL=PASS' | tee -a release-output/validated.txt
 echo 'VERSION_UPGRADE=PASS' | tee -a release-output/validated.txt
 echo 'APP_LAUNCH=PASS' | tee -a release-output/validated.txt
 echo 'PROCESS_ALIVE=PASS' | tee -a release-output/validated.txt
+echo 'FIRST_BACK_KEEPS_APP_OPEN=PASS' | tee -a release-output/validated.txt
