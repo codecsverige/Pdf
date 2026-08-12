@@ -1,31 +1,134 @@
-import { Directory, File } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
-export async function savePdfToChosenFolder(sourceUri: string, fileName: string) {
-  if (!sourceUri || !fileName) throw new Error('The generated PDF is missing.');
+export type SavePreferences = {
+  directoryUri: string | null;
+  autoSave: boolean;
+};
 
-  const source = new File(sourceUri);
-  if (!source.exists) throw new Error('The generated PDF no longer exists in app cache.');
+export type SavedFile = {
+  uri: string;
+  directoryUri: string;
+};
 
-  const directory = await Directory.pickDirectoryAsync();
-  const destination = directory.createFile(fileName, 'application/pdf');
-  source.copy(destination);
-  return destination.uri;
+const DEFAULT_PREFERENCES: SavePreferences = {
+  directoryUri: null,
+  autoSave: false,
+};
+
+const preferencesFile = FileSystem.documentDirectory
+  ? `${FileSystem.documentDirectory}pdf-pro-save-preferences.json`
+  : null;
+
+function safeFileName(fileName: string, fallback: string) {
+  const cleaned = (fileName || fallback)
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || fallback;
+}
+
+async function readAsBase64(uri: string) {
+  if (!uri) throw new Error('The generated file is missing.');
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists) throw new Error('The generated file no longer exists in app cache.');
+  return FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+}
+
+async function writeToDirectory(sourceUri: string, fileName: string, mimeType: string, directoryUri: string) {
+  const base64 = await readAsBase64(sourceUri);
+  const destination = await FileSystem.StorageAccessFramework.createFileAsync(
+    directoryUri,
+    safeFileName(fileName, mimeType === 'application/pdf' ? 'document.pdf' : 'file'),
+    mimeType,
+  );
+  await FileSystem.writeAsStringAsync(destination, base64, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return destination;
+}
+
+export async function getSavePreferences(): Promise<SavePreferences> {
+  if (!preferencesFile) return DEFAULT_PREFERENCES;
+  try {
+    const info = await FileSystem.getInfoAsync(preferencesFile);
+    if (!info.exists) return DEFAULT_PREFERENCES;
+    const raw = await FileSystem.readAsStringAsync(preferencesFile);
+    const parsed = JSON.parse(raw) as Partial<SavePreferences>;
+    return {
+      directoryUri: typeof parsed.directoryUri === 'string' ? parsed.directoryUri : null,
+      autoSave: parsed.autoSave === true,
+    };
+  } catch {
+    return DEFAULT_PREFERENCES;
+  }
+}
+
+export async function setSavePreferences(preferences: SavePreferences) {
+  if (!preferencesFile) return;
+  await FileSystem.writeAsStringAsync(preferencesFile, JSON.stringify(preferences));
+}
+
+export async function chooseSaveFolder(initialDirectoryUri?: string | null) {
+  const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(
+    initialDirectoryUri || undefined,
+  );
+  if (!permission.granted) throw new Error('Folder selection was cancelled.');
+  return permission.directoryUri;
+}
+
+export async function savePdfToDirectory(sourceUri: string, fileName: string, directoryUri: string): Promise<SavedFile> {
+  const uri = await writeToDirectory(sourceUri, safeFileName(fileName, 'document.pdf'), 'application/pdf', directoryUri);
+  return { uri, directoryUri };
+}
+
+export async function savePdfToPreferredFolder(
+  sourceUri: string,
+  fileName: string,
+  preferredDirectoryUri?: string | null,
+): Promise<SavedFile> {
+  if (preferredDirectoryUri) {
+    try {
+      return await savePdfToDirectory(sourceUri, fileName, preferredDirectoryUri);
+    } catch {
+      // Android can revoke a persisted SAF grant after storage changes or app restore.
+      // Fall through to the native folder picker and refresh the remembered URI.
+    }
+  }
+  const directoryUri = await chooseSaveFolder(preferredDirectoryUri);
+  return savePdfToDirectory(sourceUri, fileName, directoryUri);
+}
+
+export async function savePdfToChosenFolder(sourceUri: string, fileName: string): Promise<SavedFile> {
+  const directoryUri = await chooseSaveFolder();
+  return savePdfToDirectory(sourceUri, fileName, directoryUri);
+}
+
+async function saveImagesToDirectory(images: { uri: string; page: number }[], directoryUri: string) {
+  if (!images.length) throw new Error('There are no rendered pages to save.');
+  const saved: string[] = [];
+  for (const item of images) {
+    const name = `page_${item.page.toString().padStart(3, '0')}.jpg`;
+    saved.push(await writeToDirectory(item.uri, name, 'image/jpeg', directoryUri));
+  }
+  return { uris: saved, directoryUri };
+}
+
+export async function saveImagesToPreferredFolder(
+  images: { uri: string; page: number }[],
+  preferredDirectoryUri?: string | null,
+) {
+  if (preferredDirectoryUri) {
+    try {
+      return await saveImagesToDirectory(images, preferredDirectoryUri);
+    } catch {
+      // Ask again if the old SAF grant is no longer valid.
+    }
+  }
+  const directoryUri = await chooseSaveFolder(preferredDirectoryUri);
+  return saveImagesToDirectory(images, directoryUri);
 }
 
 export async function saveImagesToChosenFolder(images: { uri: string; page: number }[]) {
-  if (!images.length) throw new Error('There are no rendered pages to save.');
-
-  const directory = await Directory.pickDirectoryAsync();
-  const saved: string[] = [];
-
-  for (const item of images) {
-    const source = new File(item.uri);
-    if (!source.exists) throw new Error(`Rendered page ${item.page} no longer exists in app cache.`);
-    const name = `page_${item.page.toString().padStart(3, '0')}.jpg`;
-    const destination = directory.createFile(name, 'image/jpeg');
-    source.copy(destination);
-    saved.push(destination.uri);
-  }
-
-  return saved;
+  const directoryUri = await chooseSaveFolder();
+  return saveImagesToDirectory(images, directoryUri);
 }
