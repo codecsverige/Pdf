@@ -5,6 +5,7 @@ on:
     branches: [feat/pdf-pro-tools]
     paths:
       - 'App.tsx'
+      - 'ProApp.tsx'
       - 'app.json'
       - 'index.ts'
       - 'package.json'
@@ -107,7 +108,7 @@ jobs:
           PY
 
           cat > release-output/build-identity.txt <<'EOF'
-          app=PDF Pro Tools
+          app=PDF Pro
           version=1.4.0
           versionCode=5
           androidPackage=com.codecsverige.pdf
