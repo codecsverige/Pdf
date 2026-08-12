@@ -2,7 +2,7 @@
   "expo": {
     "name": "PDF Pro",
     "slug": "pdf-pro-tools",
-    "version": "1.4.2",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.codecsverige.pdf",
-      "versionCode": 7,
+      "versionCode": 8,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/monochrome-icon.png",

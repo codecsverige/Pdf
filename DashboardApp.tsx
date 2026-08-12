@@ -22,11 +22,14 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import SignaturePad from './components/SignaturePad';
+import SignaturePlacementEditor from './components/SignaturePlacementEditor';
+import type { SignaturePlacement } from './components/SignaturePlacementEditor';
 import { imagesToPdf } from './services/imageToPdf';
 import type { ImageInput } from './services/imageToPdf';
 import {
   compressPdfNative,
   pdfToImagesNative,
+  renderAllPreviewPages,
   protectPdfNative,
   renderPreviewPage,
   unlockPdfNative,
@@ -179,6 +182,9 @@ export default function DashboardApp() {
   const [signaturePath, setSignaturePath] = useState('');
   const [signatureSize, setSignatureSize] = useState({ width: 320, height: 170 });
   const [signaturePage, setSignaturePage] = useState('1');
+  const [signaturePlacement, setSignaturePlacement] = useState<SignaturePlacement>({ x: 0.60, y: 0.76, width: 0.32 });
+  const [signatureEditorUri, setSignatureEditorUri] = useState<string | null>(null);
+  const [signatureEditorBusy, setSignatureEditorBusy] = useState(false);
   const [previewPage, setPreviewPage] = useState(1);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [result, setResult] = useState<PdfOutput | null>(null);
@@ -226,6 +232,9 @@ export default function DashboardApp() {
     setCompression('balanced');
     setSignaturePath('');
     setSignaturePage('1');
+    setSignaturePlacement({ x: 0.60, y: 0.76, width: 0.32 });
+    setSignatureEditorUri(null);
+    setSignatureEditorBusy(false);
     setPreviewPage(1);
     setPreviewUri(null);
     setResult(null);
@@ -276,6 +285,28 @@ export default function DashboardApp() {
     setSignatureSize({ width, height });
   }, []);
 
+  useEffect(() => {
+    if (tool !== 'sign' || !selectedPdf) {
+      setSignatureEditorUri(null);
+      setSignatureEditorBusy(false);
+      return;
+    }
+    const page = Number(signaturePage);
+    if (!Number.isInteger(page) || page < 1 || (selectedPdf.pages && page > selectedPdf.pages)) {
+      setSignatureEditorUri(null);
+      setSignatureEditorBusy(false);
+      return;
+    }
+    let active = true;
+    setSignatureEditorBusy(true);
+    setSignatureEditorUri(null);
+    void renderPreviewPage(selectedPdf.uri, page - 1)
+      .then(renderedPage => { if (active) setSignatureEditorUri(renderedPage.uri); })
+      .catch(() => { if (active) setSignatureEditorUri(null); })
+      .finally(() => { if (active) setSignatureEditorBusy(false); });
+    return () => { active = false; };
+  }, [selectedPdf?.pages, selectedPdf?.uri, signaturePage, tool]);
+
   async function persistPrefs(next: SavePreferences) {
     setPrefs(next);
     await setSavePreferences(next);
@@ -315,6 +346,8 @@ export default function DashboardApp() {
       setPreviewPage(1);
       setPreviewUri(null);
       setSelectionPreview(null);
+      setSignaturePlacement({ x: 0.60, y: 0.76, width: 0.32 });
+      setSignatureEditorUri(null);
       setSaveNotice(null);
 
       next.forEach((item, index) => {
@@ -506,7 +539,7 @@ export default function DashboardApp() {
           const page = Number(signaturePage);
           if (!Number.isInteger(page) || page < 1) throw new Error('Enter a valid page number.');
           if (!signaturePath) throw new Error('Draw your signature first.');
-          output = await signPdf(selectedPdf.uri, page, signaturePath, signatureSize.width, signatureSize.height);
+          output = await signPdf(selectedPdf.uri, page, signaturePath, signatureSize.width, signatureSize.height, signaturePlacement);
           break;
         }
         case 'watermark':
@@ -603,8 +636,13 @@ export default function DashboardApp() {
     if (!tool) return false;
     if (tool === 'images' || tool === 'camera') return images.length > 0;
     if (tool === 'merge') return pdfs.length >= 2;
+    if (tool === 'sign') {
+      const page = Number(signaturePage);
+      const validPage = Number.isInteger(page) && page >= 1 && (!selectedPdf?.pages || page <= selectedPdf.pages);
+      return pdfs.length === 1 && Boolean(signaturePath) && validPage && Boolean(signatureEditorUri);
+    }
     return pdfs.length === 1;
-  }, [images.length, pdfs.length, tool]);
+  }, [images.length, pdfs.length, selectedPdf?.pages, signatureEditorUri, signaturePage, signaturePath, tool]);
 
   function actionLabel() {
     const map: Record<ToolId, string> = {
@@ -649,6 +687,7 @@ export default function DashboardApp() {
             <PdfSelectionPreview
               pdfs={pdfs}
               multiple={tool === 'merge'}
+              compact={tool === 'sign'}
               onMove={movePdf}
               onRemove={removePdf}
               onOpen={pdf => pdf.previewUri && setSelectionPreview({ uri: pdf.previewUri, title: pdf.name })}
@@ -680,10 +719,20 @@ export default function DashboardApp() {
           ) : null}
 
           {tool === 'sign' ? (
-            <OptionCard title="Signature" icon="draw-pen">
-              <TextInput value={signaturePage} onChangeText={setSignaturePage} style={styles.input} placeholder="Page 1" placeholderTextColor="#98A2B3" keyboardType="number-pad" />
-              <View style={{ marginTop: 12 }}><SignaturePad onChange={onSignature} /></View>
-            </OptionCard>
+            <>
+              <OptionCard title="Signature" icon="draw-pen">
+                <View style={styles.signPageRow}>
+                  <View style={{ flex: 1 }}><Text style={styles.signPageLabel}>Place on page</Text><Text style={styles.signPageHelp}>Choose the page first, then draw below.</Text></View>
+                  <Mini icon="minus" disabled={Number(signaturePage) <= 1} onPress={() => setSignaturePage(String(Math.max(1, (Number(signaturePage) || 1) - 1)))} />
+                  <TextInput value={signaturePage} onChangeText={setSignaturePage} style={styles.signPageInput} keyboardType="number-pad" selectTextOnFocus />
+                  <Mini icon="plus" disabled={Boolean(selectedPdf?.pages && Number(signaturePage) >= selectedPdf.pages)} onPress={() => setSignaturePage(String(selectedPdf?.pages ? Math.min(selectedPdf.pages, (Number(signaturePage) || 0) + 1) : (Number(signaturePage) || 0) + 1))} />
+                  <Text style={styles.signPageTotal}>/ {selectedPdf?.pages || '?'}</Text>
+                </View>
+                <View style={{ marginTop: 11 }}><SignaturePad onChange={onSignature} /></View>
+                <Hint text="Only the strokes are saved. Empty space around your drawing is trimmed automatically." />
+              </OptionCard>
+              {selectedPdf ? <SignaturePlacementEditor pageUri={signatureEditorUri} busy={signatureEditorBusy} signaturePath={signaturePath} sourceWidth={signatureSize.width} sourceHeight={signatureSize.height} placement={signaturePlacement} onChange={setSignaturePlacement} /> : null}
+            </>
           ) : null}
 
           {tool === 'watermark' ? <OptionCard title="Watermark text" icon="watermark"><TextInput value={watermark} onChangeText={setWatermark} style={styles.input} maxLength={80} /></OptionCard> : null}
@@ -912,7 +961,7 @@ function QuickSheet({ open, onClose, onTool }: { open: boolean; onClose: () => v
   return <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}><Pressable style={styles.sheetBackdrop} onPress={onClose}><Pressable style={styles.sheet} onPress={() => undefined}><View style={styles.sheetHandle} /><View style={styles.sheetHeader}><Text style={styles.sheetTitle}>Quick actions</Text><Pressable style={styles.sheetClose} onPress={onClose}><Icon name="close" /></Pressable></View><View style={styles.sheetGrid}>{options.map(option => { const c = tone(option.tone); return <Pressable key={option.id} style={styles.sheetOption} onPress={() => onTool(option.id)}><View style={[styles.sheetOptionIcon, { backgroundColor: c.bg }]}><Icon name={option.icon} size={26} color={c.fg} /></View><Text style={styles.sheetOptionTitle}>{option.title}</Text><Text style={styles.sheetOptionSub}>{option.subtitle}</Text></Pressable>; })}</View></Pressable></Pressable></Modal>;
 }
 
-function PdfSelectionPreview({ pdfs, multiple, onMove, onRemove, onOpen }: { pdfs: SelectedPdf[]; multiple: boolean; onMove: (index: number, direction: -1 | 1) => void; onRemove: (index: number) => void; onOpen: (pdf: SelectedPdf) => void }) {
+function PdfSelectionPreview({ pdfs, multiple, compact = false, onMove, onRemove, onOpen }: { pdfs: SelectedPdf[]; multiple: boolean; compact?: boolean; onMove: (index: number, direction: -1 | 1) => void; onRemove: (index: number) => void; onOpen: (pdf: SelectedPdf) => void }) {
   return (
     <View style={styles.selectionPanel}>
       <View style={styles.selectionHeader}>
@@ -925,7 +974,7 @@ function PdfSelectionPreview({ pdfs, multiple, onMove, onRemove, onOpen }: { pdf
           {pdfs.map((pdf, index) => <PdfPreviewCard key={`${pdf.uri}-${index}`} pdf={pdf} index={index} total={pdfs.length} onMove={onMove} onRemove={onRemove} onOpen={onOpen} />)}
         </ScrollView>
       ) : (
-        <View style={styles.singlePdfPreviewWrap}><PdfPreviewCard pdf={pdfs[0]} index={0} total={1} large onMove={onMove} onRemove={onRemove} onOpen={onOpen} /></View>
+        <View style={styles.singlePdfPreviewWrap}><PdfPreviewCard pdf={pdfs[0]} index={0} total={1} large={!compact} onMove={onMove} onRemove={onRemove} onOpen={onOpen} /></View>
       )}
     </View>
   );
@@ -1017,8 +1066,43 @@ function Action({ icon, label, onPress, primary, disabled }: { icon: string; lab
   return <Pressable style={[styles.action, primary && styles.actionPrimary, disabled && styles.disabled]} disabled={disabled} onPress={onPress}><Icon name={icon} size={19} color={primary ? '#FFFFFF' : '#344054'} /><Text style={[styles.actionText, primary && { color: '#FFFFFF' }]}>{label}</Text></Pressable>;
 }
 
-function ViewerModal({ open, output, page, uri, busy, onClose, onPage, onDownload }: { open: boolean; output: PdfOutput | null; page: number; uri: string | null; busy: boolean; onClose: () => void; onPage: (page: number) => void; onDownload: () => void }) {
-  return <Modal visible={open} animationType="slide" onRequestClose={onClose}><SafeAreaView style={styles.viewerSafe}><StatusBar style="dark" /><View style={styles.viewerHeader}><Pressable style={styles.backButton} onPress={onClose}><Icon name="arrow-left" color={INK} /></Pressable><View style={{ flex: 1 }}><Text style={styles.viewerTitle}>PDF preview</Text><Text style={styles.viewerSub}>Page {page}{output?.pageCount ? ` / ${output.pageCount}` : ''}</Text></View><Pressable style={styles.viewerDownload} onPress={onDownload}><Icon name="download" color="#FFFFFF" /></Pressable></View><View style={styles.viewerCanvas}>{busy || !uri ? <ActivityIndicator size="large" color={BRAND} /> : <Image source={{ uri }} style={styles.viewerImage} resizeMode="contain" />}</View><View style={styles.viewerFooter}><Pressable style={[styles.viewerNav, page <= 1 && styles.disabled]} disabled={page <= 1 || busy} onPress={() => onPage(page - 1)}><Icon name="chevron-left" /><Text style={styles.viewerNavText}>Previous</Text></Pressable><Pressable style={[styles.viewerNav, Boolean(output?.pageCount && page >= output.pageCount) && styles.disabled]} disabled={Boolean(output?.pageCount && page >= output.pageCount) || busy} onPress={() => onPage(page + 1)}><Text style={styles.viewerNavText}>Next</Text><Icon name="chevron-right" /></Pressable></View></SafeAreaView></Modal>;
+function ViewerModal({ open, output, onClose, onDownload }: { open: boolean; output: PdfOutput | null; page: number; uri: string | null; busy: boolean; onClose: () => void; onPage: (page: number) => void; onDownload: () => void }) {
+  const [pages, setPages] = useState<RenderedImage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [viewerError, setViewerError] = useState('');
+
+  useEffect(() => {
+    if (!open || !output) { setPages([]); setViewerError(''); return; }
+    let active = true;
+    setLoading(true);
+    setPages([]);
+    setViewerError('');
+    void renderAllPreviewPages(output.uri)
+      .then(items => { if (active) setPages(items); })
+      .catch(error => { if (active) setViewerError(errorText(error)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [open, output?.uri]);
+
+  return (
+    <Modal visible={open} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.viewerSafe}>
+        <StatusBar style="dark" />
+        <View style={styles.viewerHeader}>
+          <Pressable style={styles.backButton} onPress={onClose}><Icon name="arrow-left" color={INK} /></Pressable>
+          <View style={{ flex: 1 }}><Text style={styles.viewerTitle}>PDF preview</Text><Text style={styles.viewerSub}>{output?.pageCount || pages.length || 0} page(s) · continuous scroll</Text></View>
+          <Pressable style={styles.viewerDownload} onPress={onDownload}><Icon name="download" color="#FFFFFF" /></Pressable>
+        </View>
+        {loading ? <View style={styles.viewerLoading}><ActivityIndicator size="large" color={BRAND} /><Text style={styles.viewerLoadingText}>Preparing all pages…</Text></View> : null}
+        {!loading && viewerError ? <View style={styles.viewerLoading}><Icon name="alert-circle-outline" size={34} color="#B42318" /><Text style={styles.viewerErrorText}>{viewerError}</Text></View> : null}
+        {!loading && !viewerError ? (
+          <ScrollView style={styles.viewerScroll} contentContainerStyle={styles.viewerScrollContent} showsVerticalScrollIndicator>
+            {pages.map((item, index) => <View key={`${item.uri}-${index}`} style={styles.viewerPageCard}><View style={styles.viewerPageLabel}><Text style={styles.viewerPageLabelText}>Page {index + 1}</Text></View><Image source={{ uri: item.uri }} style={styles.viewerContinuousImage} resizeMode="contain" /></View>)}
+          </ScrollView>
+        ) : null}
+      </SafeAreaView>
+    </Modal>
+  );
 }
 
 const styles = StyleSheet.create<any>({
@@ -1200,6 +1284,11 @@ const styles = StyleSheet.create<any>({
   segmentTextActive: { color: '#FFFFFF' },
   hint: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8 },
   hintText: { color: '#667085', fontSize: 9.5, lineHeight: 14, flex: 1 },
+  signPageRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  signPageLabel: { color: '#344054', fontSize: 10.5, fontWeight: '900' },
+  signPageHelp: { color: '#98A2B3', fontSize: 8.8, marginTop: 2 },
+  signPageInput: { width: 48, height: 36, borderRadius: 10, borderWidth: 1, borderColor: '#D0D5DD', backgroundColor: '#FFFFFF', color: '#111827', fontWeight: '900', textAlign: 'center', paddingHorizontal: 4 },
+  signPageTotal: { color: '#667085', minWidth: 28, fontSize: 9.5, fontWeight: '800' },
   pageNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   pageNavText: { color: '#344054', fontSize: 10.5, fontWeight: '900' },
   previewImage: { width: '100%', height: 410, borderRadius: 14, backgroundColor: '#EAECF0' },
@@ -1231,6 +1320,15 @@ const styles = StyleSheet.create<any>({
   imageStrip: { flexDirection: 'row', gap: 6, marginTop: 10 },
   resultThumb: { width: 56, height: 73, borderRadius: 9, backgroundColor: '#EAECF0' },
   viewerSafe: { flex: 1, backgroundColor: '#F3F4F6' },
+  viewerScroll: { flex: 1, backgroundColor: '#DDE1E8' },
+  viewerScrollContent: { padding: 10, paddingBottom: 26, gap: 10 },
+  viewerPageCard: { borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D0D5DD', overflow: 'hidden', shadowColor: '#101828', shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
+  viewerPageLabel: { height: 27, paddingHorizontal: 10, justifyContent: 'center', backgroundColor: '#F8F9FB', borderBottomWidth: 1, borderBottomColor: '#EAECF0' },
+  viewerPageLabelText: { color: '#667085', fontSize: 9, fontWeight: '900' },
+  viewerContinuousImage: { width: '100%', aspectRatio: 0.707, backgroundColor: '#FFFFFF' },
+  viewerLoading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 9, padding: 24 },
+  viewerLoadingText: { color: '#667085', fontSize: 11, fontWeight: '800' },
+  viewerErrorText: { color: '#B42318', fontSize: 10.5, lineHeight: 16, textAlign: 'center' },
   viewerHeader: { minHeight: 64, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 13, borderBottomWidth: 1, borderBottomColor: LINE },
   viewerTitle: { color: INK, fontSize: 16, fontWeight: '900' },
   viewerSub: { color: '#98A2B3', fontSize: 9, marginTop: 1 },
