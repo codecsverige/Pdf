@@ -1,0 +1,143 @@
+name: Build and Validate PDF Pro APK
+
+on:
+  push:
+    branches: [feat/pdf-pro-tools]
+    paths:
+      - 'App.tsx'
+      - 'app.json'
+      - 'index.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'services/**'
+      - 'scripts/**'
+      - 'assets/**'
+      - '.github/workflows/android-build.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pdf-pro-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare validation output
+        run: mkdir -p release-output
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript validation
+        run: npm run typecheck
+
+      - name: Generate Android project
+        run: npx expo prebuild --platform android --clean
+
+      - name: Build standalone release APK
+        working-directory: android
+        env:
+          NODE_ENV: production
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Verify APK package, signature and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find android/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" release-output/PDF-Pro-Tools-1.2.0.apk
+
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs release-output/PDF-Pro-Tools-1.2.0.apk | tee release-output/signature-verification.txt
+          sha256sum release-output/PDF-Pro-Tools-1.2.0.apk | tee release-output/PDF-Pro-Tools-1.2.0.sha256
+          unzip -t release-output/PDF-Pro-Tools-1.2.0.apk > release-output/zip-integrity.txt
+          "$BUILD_TOOLS/aapt" dump badging release-output/PDF-Pro-Tools-1.2.0.apk > release-output/apk-badging-full.txt
+
+          grep -q "package: name='com.codecsverige.pdf'" release-output/apk-badging-full.txt
+          grep -q "versionCode='3'" release-output/apk-badging-full.txt
+          grep -q "versionName='1.2.0'" release-output/apk-badging-full.txt
+
+          python3 - <<'PY'
+          import zipfile
+          path = 'release-output/PDF-Pro-Tools-1.2.0.apk'
+          with zipfile.ZipFile(path) as z:
+              names = z.namelist()
+              abis = sorted({name.split('/')[1] for name in names if name.startswith('lib/') and name.count('/') >= 2})
+              assert 'AndroidManifest.xml' in names
+              assert 'classes.dex' in names
+              assert 'arm64-v8a' in abis, f'arm64-v8a missing: {abis}'
+              print('ABIS=' + ','.join(abis))
+          PY
+
+          cat > release-output/build-identity.txt <<'EOF'
+          app=PDF Pro Tools
+          version=1.2.0
+          versionCode=3
+          androidPackage=com.codecsverige.pdf
+          build=standalone-release
+          validation=signature+archive+badging+emulator-install-launch
+          EOF
+
+      - name: Free disk space before emulator
+        shell: bash
+        run: |
+          df -h
+          rm -rf android node_modules "$HOME/.gradle/caches" "$HOME/.npm/_cacache" || true
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost || true
+          df -h
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Install and launch APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          disk-size: 2048M
+          ram-size: 1536M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash scripts/smoke-emulator.sh
+
+      - name: Upload validated APK and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Pro-Tools-1.2.0-validated
+          path: release-output/
+          if-no-files-found: warn
+          retention-days: 30
