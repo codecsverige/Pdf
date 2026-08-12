@@ -57,8 +57,10 @@ jobs:
       - name: Prepare validation output
         run: mkdir -p release-output
 
-      - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+      - name: Install dependencies and refresh lockfile
+        run: |
+          npm install --no-audit --no-fund
+          cp package-lock.json release-output/package-lock.generated.json
 
       - name: TypeScript validation
         run: npm run typecheck
