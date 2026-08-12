@@ -2,15 +2,15 @@
 set -euo pipefail
 
 mkdir -p release-output
-APK="release-output/PDF-Pro-Tools-1.3.0.apk"
-BASELINE_APK="release-output/PDF-Pro-Tools-1.2.0-baseline.apk"
+APK="release-output/PDF-Pro-Tools-1.4.0.apk"
+BASELINE_APK="release-output/PDF-Pro-Tools-1.3.0-baseline.apk"
 PACKAGE="com.codecsverige.pdf"
 
 adb devices -l | tee release-output/adb-devices.txt
 adb shell getprop sys.boot_completed | tee release-output/boot-completed.txt
 
-# Reproduce the user's real path: first install the previously working APK,
-# then update it in-place with the new build.
+# Reproduce the real user path: install the last working APK first,
+# then update it in place with the new build.
 adb install "$BASELINE_APK" | tee release-output/baseline-install-result.txt
 grep -q 'Success' release-output/baseline-install-result.txt
 
@@ -21,8 +21,8 @@ INSTALLED_VERSION="$(adb shell dumpsys package "$PACKAGE" | grep -m1 'versionNam
 INSTALLED_CODE="$(adb shell dumpsys package "$PACKAGE" | grep -m1 'versionCode=' | sed -E 's/.*versionCode=([0-9]+).*/\1/' | tr -d '\r')"
 echo "INSTALLED_VERSION=$INSTALLED_VERSION" | tee release-output/installed-version.txt
 echo "INSTALLED_CODE=$INSTALLED_CODE" | tee -a release-output/installed-version.txt
-test "$INSTALLED_VERSION" = "1.3.0"
-test "$INSTALLED_CODE" = "4"
+test "$INSTALLED_VERSION" = "1.4.0"
+test "$INSTALLED_CODE" = "5"
 
 aDB_LOG="release-output/logcat-after-launch.txt"
 adb logcat -c
