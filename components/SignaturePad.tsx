@@ -24,11 +24,9 @@ function buildSvgPath(strokes: Stroke[], height: number) {
 export default function SignaturePad({ onChange }: Props) {
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [size, setSize] = useState({ width: 320, height: 170 });
-  const strokesRef = useRef<Stroke[]>([]);
   const sizeRef = useRef(size);
 
   useEffect(() => {
-    strokesRef.current = strokes;
     onChange(buildSvgPath(strokes, size.height), size.width, size.height);
   }, [strokes, size, onChange]);
 
@@ -42,8 +40,7 @@ export default function SignaturePad({ onChange }: Props) {
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: event => {
         const { locationX, locationY } = event.nativeEvent;
-        const point = { x: locationX, y: locationY };
-        setStrokes(current => [...current, [point]]);
+        setStrokes(current => [...current, [{ x: locationX, y: locationY }]]);
       },
       onPanResponderMove: event => {
         const { locationX, locationY } = event.nativeEvent;
@@ -74,10 +71,12 @@ export default function SignaturePad({ onChange }: Props) {
       const start = stroke[index];
       const length = distance(start, point);
       const angle = Math.atan2(point.y - start.y, point.x - start.x) * 180 / Math.PI;
+      const midX = (start.x + point.x) / 2;
+      const midY = (start.y + point.y) / 2;
       return {
         key: `${strokeIndex}-${index}`,
-        left: start.x,
-        top: start.y - 1.4,
+        left: midX - length / 2,
+        top: midY - 1.4,
         width: length,
         angle,
       };
@@ -133,7 +132,6 @@ const styles = StyleSheet.create({
     height: 2.8,
     backgroundColor: '#0f172a',
     borderRadius: 2,
-    transformOrigin: 'left center',
   },
   clearButton: {
     alignSelf: 'flex-end',
