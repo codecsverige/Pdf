@@ -1,18 +1,20 @@
 {
   "expo": {
-    "name": "PDF Pro Tools",
+    "name": "PDF Pro",
     "slug": "pdf-pro-tools",
     "version": "1.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#F5F7FB",
+    "primaryColor": "#4F46E5",
     "newArchEnabled": false,
     "plugins": [
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow PDF Pro Tools to select images you choose for PDF creation.",
-          "cameraPermission": "Allow PDF Pro Tools to use the camera when you choose Camera to PDF.",
+          "photosPermission": "Allow PDF Pro to select images you choose for PDF creation.",
+          "cameraPermission": "Allow PDF Pro to use the camera when you choose Scan to PDF.",
           "microphonePermission": false
         }
       ]
@@ -20,7 +22,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#f6f7fb"
+      "backgroundColor": "#F5F7FB"
     },
     "ios": {
       "supportsTablet": true,
@@ -31,7 +33,8 @@
       "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#111827"
+        "monochromeImage": "./assets/monochrome-icon.png",
+        "backgroundColor": "#4F46E5"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
