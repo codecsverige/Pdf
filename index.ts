@@ -1,6 +1,15 @@
 import { registerRootComponent } from 'expo';
+import React from 'react';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
 import App from './DashboardApp';
 
-// PDF Pro 1.4 compact dashboard entry point.
-registerRootComponent(App);
+function Root() {
+  return React.createElement(
+    SafeAreaProvider,
+    { initialMetrics: initialWindowMetrics },
+    React.createElement(App),
+  );
+}
+
+registerRootComponent(Root);

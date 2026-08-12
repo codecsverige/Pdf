@@ -12,7 +12,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -21,6 +20,7 @@ import {
   ToastAndroid,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import SignaturePad from './components/SignaturePad';
 import { imagesToPdf } from './services/imageToPdf';
 import type { ImageInput } from './services/imageToPdf';
@@ -160,6 +160,7 @@ function Icon({ name, size = 21, color = MUTED }: { name: string; size?: number;
 }
 
 export default function DashboardApp() {
+  const insets = useSafeAreaInsets();
   const [screen, setScreen] = useState<ScreenId>('home');
   const [activeTab, setActiveTab] = useState<TabId>('Popular');
   const [search, setSearch] = useState('');
@@ -701,12 +702,12 @@ export default function DashboardApp() {
     <SafeAreaView style={styles.safe}>
       <StatusBar style="dark" />
       <View style={styles.shell}>
-        <ScrollView contentContainerStyle={styles.homePage} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <Header />
+        <ScrollView contentContainerStyle={[styles.homePage, { paddingBottom: 104 + insets.bottom }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Header onSettings={() => { setSearch(''); setScreen('settings'); }} />
 
           {screen === 'home' ? (
             <>
-              <SearchBar value={search} onChange={setSearch} />
+              <SearchBar value={search} onChange={setSearch} onAllTools={() => { setSearch(''); setScreen('tools'); }} />
               {search.trim() ? (
                 <View style={styles.searchSection}>
                   <SectionTitle title={`Search results · ${searchResults.length}`} />
@@ -766,7 +767,7 @@ export default function DashboardApp() {
   );
 }
 
-function Header() {
+function Header({ onSettings }: { onSettings: () => void }) {
   return (
     <View style={styles.header}>
       <View style={styles.logoStack}>
@@ -774,13 +775,13 @@ function Header() {
         <View style={styles.logoFront}><Text style={styles.logoText}>PDF</Text></View>
       </View>
       <View style={{ flex: 1 }}><Text style={styles.brand}><Text style={{ color: BRAND }}>PDF</Text> Pro</Text><Text style={styles.brandSub}>Fast · Private · Professional</Text></View>
-      <View style={styles.proAvatar}><Icon name="crown-outline" size={19} color="#FFFFFF" /></View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Open settings" style={styles.proAvatar} onPress={onSettings}><Icon name="cog-outline" size={20} color="#FFFFFF" /></Pressable>
     </View>
   );
 }
 
-function SearchBar({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return <View style={styles.searchBar}><Icon name="magnify" size={26} color="#7D8798" /><TextInput value={value} onChangeText={onChange} style={styles.searchInput} placeholder="Search PDF tools" placeholderTextColor="#A3AABA" /><View style={styles.filterButton}><Icon name="tune-variant" size={20} color="#7D8798" /></View></View>;
+function SearchBar({ value, onChange, onAllTools }: { value: string; onChange: (value: string) => void; onAllTools: () => void }) {
+  return <View style={styles.searchBar}><Icon name="magnify" size={26} color="#7D8798" /><TextInput value={value} onChangeText={onChange} style={styles.searchInput} placeholder="Search PDF tools" placeholderTextColor="#A3AABA" /><Pressable accessibilityRole="button" accessibilityLabel="Open all PDF tools" style={styles.filterButton} onPress={onAllTools}><Icon name="view-grid-outline" size={20} color="#7D8798" /></Pressable></View>;
 }
 
 function Hero({ onStart }: { onStart: () => void }) {
@@ -845,8 +846,9 @@ function EmptyState({ icon, title, text }: { icon: string; title: string; text: 
 }
 
 function BottomNav({ screen, onChange, onQuick }: { screen: ScreenId; onChange: (value: ScreenId) => void; onQuick: () => void }) {
-  const item = (id: ScreenId, icon: string, label: string) => <Pressable style={styles.navItem} onPress={() => onChange(id)}><Icon name={icon} size={24} color={screen === id ? BRAND : '#667085'} /><Text style={[styles.navLabel, screen === id && styles.navLabelActive]}>{label}</Text></Pressable>;
-  return <View style={styles.bottomNav}>{item('home', 'home-variant-outline', 'Home')}{item('files', 'folder-outline', 'Files')}<Pressable style={styles.fab} onPress={onQuick}><Icon name="plus" size={32} color="#FFFFFF" /></Pressable>{item('tools', 'view-grid-outline', 'Tools')}{item('settings', 'cog-outline', 'Settings')}</View>;
+  const insets = useSafeAreaInsets();
+  const item = (id: ScreenId, icon: string, label: string) => <Pressable accessibilityRole="button" accessibilityLabel={label} style={styles.navItem} onPress={() => onChange(id)}><Icon name={icon} size={24} color={screen === id ? BRAND : '#667085'} /><Text style={[styles.navLabel, screen === id && styles.navLabelActive]}>{label}</Text></Pressable>;
+  return <View style={[styles.bottomNav, { bottom: Math.max(10, insets.bottom + 8) }]}>{item('home', 'home-variant-outline', 'Home')}{item('files', 'folder-outline', 'Files')}<Pressable accessibilityRole="button" accessibilityLabel="Quick actions" style={styles.fab} onPress={onQuick}><Icon name="plus" size={32} color="#FFFFFF" /></Pressable>{item('tools', 'view-grid-outline', 'Tools')}{item('settings', 'cog-outline', 'Settings')}</View>;
 }
 
 function QuickSheet({ open, onClose, onTool }: { open: boolean; onClose: () => void; onTool: (tool: ToolId) => void }) {
@@ -902,19 +904,19 @@ const styles = StyleSheet.create<any>({
   logoText: { color: '#FFFFFF', fontWeight: '900', fontSize: 14 },
   brand: { color: INK, fontSize: 25, fontWeight: '900', letterSpacing: -0.7 },
   brandSub: { color: '#98A2B3', fontSize: 9.5, fontWeight: '700', marginTop: 2 },
-  proAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center', shadowColor: '#7C3AED', shadowOpacity: 0.2, shadowRadius: 8, elevation: 3 },
+  proAvatar: { width: 40, height: 40, borderRadius: 13, backgroundColor: '#111827', alignItems: 'center', justifyContent: 'center', shadowColor: '#7C3AED', shadowOpacity: 0.2, shadowRadius: 8, elevation: 3 },
   searchBar: { minHeight: 53, borderRadius: 17, backgroundColor: SURFACE, borderWidth: 1, borderColor: LINE, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', marginBottom: 14, shadowColor: '#101828', shadowOpacity: 0.025, shadowRadius: 8, elevation: 1 },
   searchInput: { flex: 1, minHeight: 48, paddingHorizontal: 10, color: INK, fontSize: 13.5, fontWeight: '600' },
   filterButton: { width: 36, height: 36, borderRadius: 11, backgroundColor: '#F2F4F7', alignItems: 'center', justifyContent: 'center' },
-  hero: { height: 224, borderRadius: 25, backgroundColor: '#5B4AE8', overflow: 'hidden', padding: 19, marginBottom: 14, shadowColor: '#5B4AE8', shadowOpacity: 0.16, shadowRadius: 16, elevation: 4 },
+  hero: { minHeight: 204, borderRadius: 25, backgroundColor: '#5B4AE8', overflow: 'hidden', padding: 19, marginBottom: 14, shadowColor: '#5B4AE8', shadowOpacity: 0.16, shadowRadius: 16, elevation: 4 },
   heroGlowPink: { position: 'absolute', width: 220, height: 220, borderRadius: 110, backgroundColor: '#FF4D6D', left: -70, top: -90, opacity: 0.82 },
   heroGlowBlue: { position: 'absolute', width: 240, height: 240, borderRadius: 120, backgroundColor: '#1597F3', right: -80, bottom: -110, opacity: 0.75 },
   heroDotOne: { position: 'absolute', width: 7, height: 7, borderRadius: 4, backgroundColor: '#FFFFFF', opacity: 0.8, right: 38, top: 36 },
   heroDotTwo: { position: 'absolute', width: 5, height: 5, borderRadius: 3, backgroundColor: '#FFFFFF', opacity: 0.75, right: 124, bottom: 30 },
-  heroCopy: { width: '64%', zIndex: 2 },
-  heroTitle: { color: '#FFFFFF', fontSize: 25, lineHeight: 31, fontWeight: '900', letterSpacing: -0.7 },
-  heroText: { color: '#F3F4FF', fontSize: 11.8, lineHeight: 17, fontWeight: '600', marginTop: 9 },
-  heroButton: { alignSelf: 'flex-start', marginTop: 17, minHeight: 39, borderRadius: 20, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14 },
+  heroCopy: { width: '62%', zIndex: 2 },
+  heroTitle: { color: '#FFFFFF', fontSize: 22.5, lineHeight: 28, fontWeight: '900', letterSpacing: -0.7 },
+  heroText: { color: '#F3F4FF', fontSize: 11.2, lineHeight: 16, fontWeight: '600', marginTop: 8 },
+  heroButton: { alignSelf: 'flex-start', marginTop: 13, minHeight: 39, borderRadius: 20, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14 },
   heroButtonText: { color: INK, fontWeight: '900', fontSize: 11.5 },
   heroArt: { position: 'absolute', width: 120, height: 160, right: 12, top: 31, transform: [{ rotate: '4deg' }] },
   heroPaper: { position: 'absolute', width: 94, height: 126, borderRadius: 16, backgroundColor: '#F9FAFF', right: 9, top: 18, padding: 14, shadowColor: '#111827', shadowOpacity: 0.15, shadowRadius: 10, elevation: 5 },
@@ -928,8 +930,8 @@ const styles = StyleSheet.create<any>({
   tabs: { gap: 7, paddingBottom: 12 },
   tab: { minHeight: 39, borderRadius: 19, borderWidth: 1, borderColor: LINE, backgroundColor: SURFACE, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12 },
   tabText: { color: '#667085', fontSize: 10.5, fontWeight: '900' },
-  toolGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  toolTile: { width: '48.7%', minHeight: 118, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: '#E8EAF0', padding: 13, position: 'relative', shadowColor: '#101828', shadowOpacity: 0.035, shadowRadius: 10, elevation: 1 },
+  toolGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
+  toolTile: { width: '48%', minHeight: 118, borderRadius: 18, backgroundColor: SURFACE, borderWidth: 1, borderColor: '#E8EAF0', padding: 13, position: 'relative', shadowColor: '#101828', shadowOpacity: 0.035, shadowRadius: 10, elevation: 1 },
   toolTileIcon: { width: 43, height: 43, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   toolTileTitle: { color: INK, fontSize: 13.3, fontWeight: '900' },
   toolTileSub: { color: '#8B94A5', fontSize: 9.7, fontWeight: '600', marginTop: 3 },
@@ -991,8 +993,8 @@ const styles = StyleSheet.create<any>({
   sheetHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
   sheetTitle: { flex: 1, color: INK, fontSize: 20, fontWeight: '900' },
   sheetClose: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#F2F4F7', alignItems: 'center', justifyContent: 'center' },
-  sheetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  sheetOption: { width: '48.5%', minHeight: 112, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 13 },
+  sheetGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 10 },
+  sheetOption: { width: '48%', minHeight: 112, borderRadius: 18, borderWidth: 1, borderColor: LINE, padding: 13 },
   sheetOptionIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginBottom: 9 },
   sheetOptionTitle: { color: INK, fontSize: 12.5, fontWeight: '900' },
   sheetOptionSub: { color: '#98A2B3', fontSize: 9.4, marginTop: 2 },
