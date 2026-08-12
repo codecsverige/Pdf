@@ -1,0 +1,43 @@
+name: Normalize dashboard source
+
+on:
+  push:
+    branches: [feat/pdf-pro-tools]
+    paths:
+      - 'DashboardApp.tsx'
+      - '.github/workflows/normalize-dashboard.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pdf-pro-tools
+          fetch-depth: 0
+      - name: Normalize React Native style typing
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('DashboardApp.tsx')
+          text = path.read_text()
+          text = text.replace("fontWeight: '1000'", "fontWeight: '900'")
+          text = text.replace('const styles = StyleSheet.create({', 'const styles = StyleSheet.create<any>({')
+          path.write_text(text)
+          PY
+      - name: Commit normalized source if needed
+        shell: bash
+        run: |
+          if git diff --quiet -- DashboardApp.tsx; then
+            echo 'Dashboard source already normalized.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add DashboardApp.tsx
+          git commit -m 'fix(ui): normalize dashboard style typings'
+          git push origin HEAD:feat/pdf-pro-tools
