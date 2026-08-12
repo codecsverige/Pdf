@@ -6,9 +6,11 @@
     "node": ">=18"
   },
   "scripts": {
+    "prepare:assets": "node scripts/prepare-assets.mjs",
+    "postinstall": "node scripts/prepare-assets.mjs",
     "start": "npx expo start",
-    "android": "npx expo run:android",
-    "ios": "npx expo run:ios",
+    "android": "npm run prepare:assets && npx expo run:android",
+    "ios": "npm run prepare:assets && npx expo run:ios",
     "web": "npx expo start --web",
     "typecheck": "tsc --noEmit"
   },
