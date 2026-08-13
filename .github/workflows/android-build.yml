@@ -4,8 +4,6 @@ on:
   push:
     branches: [feat/pdf-pro-tools]
     paths:
-      - 'App.tsx'
-      - 'ProApp.tsx'
       - 'DashboardApp.tsx'
       - 'app.json'
       - 'index.ts'
@@ -35,7 +33,7 @@ jobs:
     timeout-minutes: 50
     env:
       CI: true
-      APK_NAME: PDF-Pro-Tools-1.5.0.apk
+      APK_NAME: PDF-Pro-Tools-1.5.1.apk
       BASELINE_APK_NAME: PDF-Pro-Tools-1.3.0-baseline.apk
     steps:
       - name: Checkout
@@ -59,10 +57,8 @@ jobs:
       - name: Prepare validation output
         run: mkdir -p release-output
 
-      - name: Install dependencies and refresh lockfile
-        run: |
-          npm install --no-audit --no-fund
-          cp package-lock.json release-output/package-lock.generated.json
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
 
       - name: TypeScript validation
         run: npm run typecheck
@@ -78,7 +74,7 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
-      - name: Verify APK package, signature and archive
+      - name: Verify APK package, API level, permissions, signature and archive
         shell: bash
         run: |
           set -euo pipefail
@@ -88,17 +84,33 @@ jobs:
 
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "release-output/$APK_NAME" | tee release-output/signature-verification.txt
-          sha256sum "release-output/$APK_NAME" | tee release-output/PDF-Pro-Tools-1.5.0.sha256
+          sha256sum "release-output/$APK_NAME" | tee release-output/PDF-Pro-Tools-1.5.1.sha256
           unzip -t "release-output/$APK_NAME" > release-output/zip-integrity.txt
           "$BUILD_TOOLS/aapt" dump badging "release-output/$APK_NAME" > release-output/apk-badging-full.txt
+          "$BUILD_TOOLS/aapt" dump permissions "release-output/$APK_NAME" > release-output/apk-permissions.txt
 
           grep -q "package: name='com.codecsverige.pdf'" release-output/apk-badging-full.txt
-          grep -q "versionCode='8'" release-output/apk-badging-full.txt
-          grep -q "versionName='1.5.0'" release-output/apk-badging-full.txt
+          grep -q "versionCode='9'" release-output/apk-badging-full.txt
+          grep -q "versionName='1.5.1'" release-output/apk-badging-full.txt
+          grep -q "targetSdkVersion:'36'" release-output/apk-badging-full.txt
+
+          for forbidden in \
+            android.permission.READ_EXTERNAL_STORAGE \
+            android.permission.WRITE_EXTERNAL_STORAGE \
+            android.permission.READ_MEDIA_IMAGES \
+            android.permission.READ_MEDIA_VIDEO \
+            android.permission.READ_MEDIA_AUDIO \
+            android.permission.SYSTEM_ALERT_WINDOW; do
+            if grep -q "$forbidden" release-output/apk-permissions.txt; then
+              echo "Forbidden broad permission present: $forbidden" >&2
+              cat release-output/apk-permissions.txt >&2
+              exit 1
+            fi
+          done
 
           python3 - <<'PY'
           import zipfile
-          path = 'release-output/PDF-Pro-Tools-1.5.0.apk'
+          path = 'release-output/PDF-Pro-Tools-1.5.1.apk'
           with zipfile.ZipFile(path) as z:
               names = z.namelist()
               abis = sorted({name.split('/')[1] for name in names if name.startswith('lib/') and name.count('/') >= 2})
@@ -110,14 +122,15 @@ jobs:
 
           cat > release-output/build-identity.txt <<'EOF'
           app=PDF Pro
-          version=1.5.0
-          versionCode=8
+          version=1.5.1
+          versionCode=9
           androidPackage=com.codecsverige.pdf
-          build=standalone-release
-          validation=signature+archive+badging+baseline-upgrade+emulator-launch
+          targetSdk=36
+          build=standalone-release-regression
+          validation=permissions+signature+archive+badging+baseline-upgrade+emulator-launch
           EOF
 
-      - name: Download last known good 1.3.0 APK and verify signer continuity
+      - name: Download last known good 1.3.0 APK and verify regression signer continuity
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -148,7 +161,7 @@ jobs:
           echo "OLD_CERT=$OLD_CERT" | tee -a release-output/signer-continuity.txt
           test -n "$NEW_CERT"
           test "$NEW_CERT" = "$OLD_CERT"
-          echo 'SIGNER_CONTINUITY=PASS' | tee -a release-output/signer-continuity.txt
+          echo 'REGRESSION_SIGNER_CONTINUITY=PASS' | tee -a release-output/signer-continuity.txt
 
       - name: Free disk space before emulator
         shell: bash
@@ -165,7 +178,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      - name: Upgrade from 1.3.0 and launch 1.5.0 on Android emulator
+      - name: Upgrade from 1.3.0 and launch 1.5.1 on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
@@ -182,7 +195,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: PDF-Pro-Tools-1.5.0-validated
+          name: PDF-Pro-Tools-1.5.1-regression-validated
           path: release-output/
           if-no-files-found: warn
           retention-days: 30
