@@ -68,7 +68,6 @@ jobs:
           p = Path('android/app/build.gradle')
           s = p.read_text()
           original = s
-          # Expo prebuild uses signingConfigs.debug for the generated release by default.
           s = s.replace('signingConfig signingConfigs.debug', '')
           if s == original:
               raise SystemExit('Expected Expo debug signingConfig was not found')
@@ -94,14 +93,9 @@ jobs:
           cp "$AAB" "production-output/$BUNDLE_NAME"
           sha256sum "production-output/$BUNDLE_NAME" | tee production-output/unsigned-aab.sha256
           unzip -t "production-output/$BUNDLE_NAME" > production-output/aab-zip-integrity.txt
-          if jarsigner -verify "production-output/$BUNDLE_NAME" >/tmp/jarsigner.txt 2>&1; then
-            if ! grep -qi "jar is unsigned" /tmp/jarsigner.txt; then
-              cat /tmp/jarsigner.txt
-              echo 'AAB unexpectedly contains a signing certificate; refusing production handoff' >&2
-              exit 1
-            fi
-          fi
+          jarsigner -verify "production-output/$BUNDLE_NAME" >/tmp/jarsigner.txt 2>&1 || true
           cat /tmp/jarsigner.txt | tee production-output/unsigned-signing-state.txt
+          grep -qi "jar is unsigned" /tmp/jarsigner.txt || { echo 'AAB was expected to be unsigned in CI' >&2; exit 1; }
 
       - name: Download official bundletool 1.18.3
         shell: bash
@@ -159,7 +153,7 @@ jobs:
             --key-pass=pass:aab-validation-only
           unzip -p /tmp/pdf-pro.apks universal.apk > production-output/universal-from-aab.apk
 
-      - name: Verify generated APK and 16 KB readiness
+      - name: Verify generated APK metadata and permissions
         shell: bash
         run: |
           set -euo pipefail
@@ -171,7 +165,6 @@ jobs:
           grep -q "versionCode='9'" production-output/universal-badging.txt
           grep -q "versionName='1.5.1'" production-output/universal-badging.txt
           grep -q "targetSdkVersion:'36'" production-output/universal-badging.txt
-
           for forbidden in READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_AUDIO SYSTEM_ALERT_WINDOW; do
             if grep -q "$forbidden" production-output/universal-permissions.txt; then
               echo "Forbidden production permission found in generated APK: $forbidden" >&2
@@ -179,17 +172,31 @@ jobs:
             fi
           done
 
-          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK" > production-output/zipalign-16k.txt
+      - name: Diagnose APK 16 KB ZIP alignment
+        shell: bash
+        run: |
+          set +e
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APK=production-output/universal-from-aab.apk
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK" > production-output/zipalign-16k.txt 2>&1
+          STATUS=$?
+          echo "$STATUS" > production-output/zipalign-16k.status
+          cat production-output/zipalign-16k.txt
+          exit 0
 
+      - name: Diagnose ELF 16 KB LOAD alignment
+        shell: bash
+        run: |
+          set +e
           rm -rf /tmp/universal-extract
           mkdir -p /tmp/universal-extract
-          unzip -q "$APK" 'lib/*/*.so' -d /tmp/universal-extract
-          python3 - <<'PY' | tee production-output/elf-16k-alignment.txt
+          unzip -q production-output/universal-from-aab.apk 'lib/*/*.so' -d /tmp/universal-extract
+          python3 - <<'PY' > production-output/elf-16k-alignment.txt 2>&1
           from pathlib import Path
           import subprocess, re, sys
           bad=[]
           checked=0
-          for so in Path('/tmp/universal-extract').rglob('*.so'):
+          for so in sorted(Path('/tmp/universal-extract').rglob('*.so')):
               checked += 1
               out=subprocess.check_output(['readelf','-lW',str(so)],text=True,errors='replace')
               aligns=[]
@@ -198,14 +205,40 @@ jobs:
                       token=line.split()[-1]
                       try: aligns.append(int(token,16))
                       except ValueError: pass
-              if aligns and min(aligns) < 0x4000:
-                  bad.append((str(so), min(aligns)))
+              minimum=min(aligns) if aligns else 0
+              print(f'{minimum:#x} {so}')
+              if aligns and minimum < 0x4000:
+                  bad.append((str(so), minimum))
           print(f'ELF_FILES_CHECKED={checked}')
           if bad:
+              print(f'BAD_ELF_COUNT={len(bad)}')
               for path,align in bad: print(f'BAD_ALIGNMENT={align:#x} {path}')
               sys.exit(1)
           print('ELF_16KB_ALIGNMENT=PASS')
           PY
+          STATUS=$?
+          echo "$STATUS" > production-output/elf-16k.status
+          cat production-output/elf-16k-alignment.txt
+          exit 0
+
+      - name: Upload 16 KB diagnostics and unsigned bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Pro-1.5.1-production-diagnostics
+          path: production-output/
+          retention-days: 30
+
+      - name: Enforce 16 KB readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP_STATUS="$(cat production-output/zipalign-16k.status)"
+          ELF_STATUS="$(cat production-output/elf-16k.status)"
+          echo "ZIP_ALIGNMENT_STATUS=$ZIP_STATUS"
+          echo "ELF_ALIGNMENT_STATUS=$ELF_STATUS"
+          test "$ZIP_STATUS" = "0"
+          test "$ELF_STATUS" = "0"
 
       - name: Write production evidence
         run: |
@@ -219,13 +252,13 @@ jobs:
           Analytics SDK: none
           Purchase SDK: removed from first production build
           Processing model: local-first
-          16 KB: universal APK zip alignment and ELF LOAD alignment validated
+          16 KB: universal APK ZIP and ELF LOAD alignment validated
           Signing state: intentionally unsigned in CI; final upload signing is performed offline
           EOF
 
-      - name: Upload unsigned production AAB and evidence
+      - name: Upload production-ready unsigned AAB and evidence
         uses: actions/upload-artifact@v4
         with:
-          name: PDF-Pro-1.5.1-production-unsigned
+          name: PDF-Pro-1.5.1-production-unsigned-ready
           path: production-output/
           retention-days: 30
