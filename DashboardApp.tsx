@@ -9,6 +9,7 @@ import {
   Alert,
   BackHandler,
   Image,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -105,6 +106,7 @@ const LINE = '#E7EAF0';
 const BG = '#F7F8FC';
 const SURFACE = '#FFFFFF';
 const DEFAULT_PREFS: SavePreferences = { directoryUri: null, autoSave: false };
+const PRIVACY_URL = 'https://github.com/codecsverige/Pdf/blob/main/privacy.html';
 
 const TOOLS: Tool[] = [
   { id: 'compress', title: 'Compress', subtitle: 'Reduce PDF size', icon: 'file-percent-outline', tone: 'pink', tabs: ['Popular'], native: true },
@@ -373,8 +375,6 @@ export default function DashboardApp() {
 
   async function pickImages() {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) throw new Error('Photo access is required.');
       const response = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsMultipleSelection: true,
@@ -852,8 +852,10 @@ export default function DashboardApp() {
                 <SettingRow icon="folder-download-outline" title="Download folder" subtitle={prefs.directoryUri ? 'Custom folder selected' : 'Downloads/PDF Pro'} action="Change" onPress={chooseDefaultFolder} />
                 <View style={styles.settingDivider} />
                 <View style={styles.settingSwitchRow}><View style={styles.settingIcon}><Icon name="download-circle-outline" color="#2563EB" /></View><View style={{ flex: 1 }}><Text style={styles.settingTitle}>Auto-download</Text><Text style={styles.settingSub}>Save every result right after processing</Text></View><Switch value={prefs.autoSave} onValueChange={value => persistPrefs({ ...prefs, autoSave: value })} trackColor={{ false: '#D7DCE5', true: '#FDA4AF' }} thumbColor={prefs.autoSave ? BRAND : '#FFFFFF'} /></View>
+                <View style={styles.settingDivider} />
+                <SettingRow icon="shield-account-outline" title="Privacy policy" subtitle="Local processing, storage and data handling" action="View" onPress={() => Linking.openURL(PRIVACY_URL).catch(() => Alert.alert('Could not open privacy policy', PRIVACY_URL))} />
               </View>
-              <View style={styles.privacyCard}><View style={styles.privacyIcon}><Icon name="shield-lock-outline" color="#059669" size={25} /></View><View style={{ flex: 1 }}><Text style={styles.privacyTitle}>Local-first processing</Text><Text style={styles.privacyText}>The current PDF tools run on the device. PDF Pro does not expose placeholder OCR or fake cloud features.</Text></View></View>
+              <View style={styles.privacyCard}><View style={styles.privacyIcon}><Icon name="shield-lock-outline" color="#059669" size={25} /></View><View style={{ flex: 1 }}><Text style={styles.privacyTitle}>Local-first processing</Text><Text style={styles.privacyText}>PDFs, images, signatures and passwords are processed on this device. This production build contains no advertising, analytics or cloud-processing SDK.</Text><Text style={[styles.privacyText, { marginTop: 7, fontWeight: '800' }]}>PDF Pro 1.5.1 · production</Text></View></View>
             </View>
           ) : null}
         </ScrollView>

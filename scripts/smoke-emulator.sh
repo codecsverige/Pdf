@@ -2,7 +2,7 @@
 set -euo pipefail
 
 mkdir -p release-output
-APK="release-output/PDF-Pro-Tools-1.5.0.apk"
+APK="release-output/PDF-Pro-Tools-1.5.1.apk"
 BASELINE_APK="release-output/PDF-Pro-Tools-1.3.0-baseline.apk"
 PACKAGE="com.codecsverige.pdf"
 
@@ -21,8 +21,8 @@ INSTALLED_VERSION="$(adb shell dumpsys package "$PACKAGE" | grep -m1 'versionNam
 INSTALLED_CODE="$(adb shell dumpsys package "$PACKAGE" | grep -m1 'versionCode=' | sed -E 's/.*versionCode=([0-9]+).*/\1/' | tr -d '\r')"
 echo "INSTALLED_VERSION=$INSTALLED_VERSION" | tee release-output/installed-version.txt
 echo "INSTALLED_CODE=$INSTALLED_CODE" | tee -a release-output/installed-version.txt
-test "$INSTALLED_VERSION" = "1.5.0"
-test "$INSTALLED_CODE" = "8"
+test "$INSTALLED_VERSION" = "1.5.1"
+test "$INSTALLED_CODE" = "9"
 
 ADB_LOG="release-output/logcat-after-launch.txt"
 adb logcat -c
