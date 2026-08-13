@@ -118,6 +118,7 @@ jobs:
           grep -q 'package="com.codecsverige.pdf"' production-output/base-manifest.xml
           grep -Eq 'versionCode="9"|android:versionCode="9"' production-output/base-manifest.xml
           grep -Eq 'targetSdkVersion="36"|android:targetSdkVersion="36"' production-output/base-manifest.xml
+          grep -q 'PAGE_ALIGNMENT_16K' production-output/bundle-config.txt
 
           for forbidden in \
             READ_EXTERNAL_STORAGE \
@@ -172,87 +173,70 @@ jobs:
             fi
           done
 
-      - name: Diagnose APK 16 KB ZIP alignment
+      - name: Verify APK 16 KB ZIP alignment
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           APK=production-output/universal-from-aab.apk
           "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK" > production-output/zipalign-16k.txt 2>&1
-          STATUS=$?
-          echo "$STATUS" > production-output/zipalign-16k.status
           cat production-output/zipalign-16k.txt
-          exit 0
 
-      - name: Diagnose ELF 16 KB LOAD alignment
+      - name: Verify official 64-bit ELF 16 KB LOAD alignment
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           rm -rf /tmp/universal-extract
           mkdir -p /tmp/universal-extract
           unzip -q production-output/universal-from-aab.apk 'lib/*/*.so' -d /tmp/universal-extract
-          python3 - <<'PY' > production-output/elf-16k-alignment.txt 2>&1
+          python3 - <<'PY' | tee production-output/elf-16k-alignment.txt
           from pathlib import Path
           import subprocess, re, sys
           bad=[]
           checked=0
-          for so in sorted(Path('/tmp/universal-extract').rglob('*.so')):
-              checked += 1
-              out=subprocess.check_output(['readelf','-lW',str(so)],text=True,errors='replace')
-              aligns=[]
-              for line in out.splitlines():
-                  if re.match(r'\s*LOAD\s', line):
-                      token=line.split()[-1]
-                      try: aligns.append(int(token,16))
-                      except ValueError: pass
-              minimum=min(aligns) if aligns else 0
-              print(f'{minimum:#x} {so}')
-              if aligns and minimum < 0x4000:
-                  bad.append((str(so), minimum))
-          print(f'ELF_FILES_CHECKED={checked}')
-          if bad:
-              print(f'BAD_ELF_COUNT={len(bad)}')
-              for path,align in bad: print(f'BAD_ALIGNMENT={align:#x} {path}')
+          # Android's official 16 KB ELF validation applies to 64-bit arm64-v8a/x86_64 shared libraries.
+          for abi in ('arm64-v8a', 'x86_64'):
+              root = Path('/tmp/universal-extract/lib') / abi
+              for so in sorted(root.glob('*.so')):
+                  checked += 1
+                  out=subprocess.check_output(['readelf','-lW',str(so)],text=True,errors='replace')
+                  aligns=[]
+                  for line in out.splitlines():
+                      if re.match(r'\s*LOAD\s', line):
+                          token=line.split()[-1]
+                          try: aligns.append(int(token,16))
+                          except ValueError: pass
+                  minimum=min(aligns) if aligns else 0
+                  print(f'{abi} {minimum:#x} {so.name}')
+                  if aligns and minimum < 0x4000:
+                      bad.append((abi, str(so), minimum))
+          print(f'ELF_64BIT_FILES_CHECKED={checked}')
+          if checked == 0:
+              print('No 64-bit shared libraries found')
               sys.exit(1)
-          print('ELF_16KB_ALIGNMENT=PASS')
+          if bad:
+              print(f'BAD_64BIT_ELF_COUNT={len(bad)}')
+              for abi,path,align in bad: print(f'BAD_ALIGNMENT={abi} {align:#x} {path}')
+              sys.exit(1)
+          print('ELF_64BIT_16KB_ALIGNMENT=PASS')
           PY
-          STATUS=$?
-          echo "$STATUS" > production-output/elf-16k.status
-          cat production-output/elf-16k-alignment.txt
-          exit 0
-
-      - name: Upload 16 KB diagnostics and unsigned bundle
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: PDF-Pro-1.5.1-production-diagnostics
-          path: production-output/
-          retention-days: 30
-
-      - name: Enforce 16 KB readiness
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP_STATUS="$(cat production-output/zipalign-16k.status)"
-          ELF_STATUS="$(cat production-output/elf-16k.status)"
-          echo "ZIP_ALIGNMENT_STATUS=$ZIP_STATUS"
-          echo "ELF_ALIGNMENT_STATUS=$ELF_STATUS"
-          test "$ZIP_STATUS" = "0"
-          test "$ELF_STATUS" = "0"
 
       - name: Write production evidence
         run: |
+          mkdir -p production-output
           cat > production-output/PRODUCTION-READINESS.txt <<'EOF'
           PDF Pro 1.5.1 (versionCode 9)
           Package: com.codecsverige.pdf
           Target SDK: 36
           AAB: bundletool validated
+          AAB native library page alignment request: PAGE_ALIGNMENT_16K
           Broad media/storage permissions: absent
           Advertising SDK: removed
           Analytics SDK: none
           Purchase SDK: removed from first production build
           Processing model: local-first
-          16 KB: universal APK ZIP and ELF LOAD alignment validated
+          16 KB ZIP alignment: PASS
+          16 KB ELF LOAD alignment for arm64-v8a/x86_64: PASS
           Signing state: intentionally unsigned in CI; final upload signing is performed offline
           EOF
 
