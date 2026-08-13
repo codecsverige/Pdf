@@ -1,0 +1,42 @@
+name: Apply production cleanup
+
+on:
+  push:
+    branches: [feat/pdf-pro-tools]
+    paths:
+      - 'scripts/apply-production-cleanup.py'
+      - '.github/workflows/apply-production-cleanup.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pdf-pro-production-cleanup
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/pdf-pro-tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Apply production source cleanup
+        run: python3 scripts/apply-production-cleanup.py
+      - name: Refresh lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Install production dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate TypeScript
+        run: npm run typecheck
+      - name: Commit production source
+        run: |
+          git config user.name 'codecsverige'
+          git config user.email 'codec.sverige@gmail.com'
+          git add -A
+          git commit -m 'Prepare PDF Pro 1.5.1 for Google Play production' || exit 0
+          git push origin HEAD:feat/pdf-pro-tools
