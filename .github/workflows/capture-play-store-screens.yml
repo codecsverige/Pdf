@@ -1,0 +1,84 @@
+name: Capture real PDF Pro Play Store screens
+
+on:
+  push:
+    branches: [feat/pdf-pro-tools]
+    paths:
+      - 'scripts/capture-play-store-screens.sh'
+      - '.github/workflows/capture-play-store-screens.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pdf-pro-real-play-store-screens
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout final app branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/pdf-pro-tools
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Download APK generated from validated production AAB
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p play-store-input
+          curl --fail --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9175948655/zip" \
+            -o /tmp/production-aab-artifact.zip
+          unzip -q /tmp/production-aab-artifact.zip -d play-store-input
+          test -s play-store-input/universal-from-aab.apk
+
+      - name: Install screenshot validator dependency
+        run: python3 -m pip install --quiet pillow
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Capture real app screens on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disk-size: 4096M
+          ram-size: 2048M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash scripts/capture-play-store-screens.sh play-store-input/universal-from-aab.apk
+
+      - name: Upload raw real screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDF-Pro-1.5.1-real-play-store-captures
+          path: play-store-captures/
+          if-no-files-found: error
+          retention-days: 30
