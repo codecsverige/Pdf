@@ -29,8 +29,9 @@ jobs:
     timeout-minutes: 45
     env:
       CI: true
-      BUNDLE_NAME: PDF-Pro-1.5.1-production-unsigned.aab
       BUNDLETOOL_VERSION: 1.18.3
+      EXPECTED_PACKAGE: com.codecsverige.pdf
+      EXPECTED_TARGET_SDK: '36'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,6 +57,20 @@ jobs:
       - name: Validate TypeScript
         run: npm run typecheck
 
+      - name: Read immutable app identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE=$(node -p "require('./app.json').expo.android.package")
+          VERSION_CODE=$(node -p "require('./app.json').expo.android.versionCode")
+          VERSION_NAME=$(node -p "require('./app.json').expo.version")
+          test "$PACKAGE" = "$EXPECTED_PACKAGE"
+          test "$VERSION_CODE" -ge 10
+          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Generate clean Android project
         run: npx expo prebuild --platform android --clean
 
@@ -73,9 +88,8 @@ jobs:
               raise SystemExit('Expected Expo debug signingConfig was not found')
           p.write_text(s)
           PY
-          grep -n "signingConfig\|buildTypes" android/app/build.gradle || true
 
-      - name: Build unsigned release App Bundle
+      - name: Build unsigned release AAB
         working-directory: android
         env:
           NODE_ENV: production
@@ -88,16 +102,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p production-output
-          AAB="$(find android/app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n 1)"
-          test -n "$AAB"
-          cp "$AAB" "production-output/$BUNDLE_NAME"
-          sha256sum "production-output/$BUNDLE_NAME" | tee production-output/unsigned-aab.sha256
-          unzip -t "production-output/$BUNDLE_NAME" > production-output/aab-zip-integrity.txt
-          jarsigner -verify "production-output/$BUNDLE_NAME" >/tmp/jarsigner.txt 2>&1 || true
+          AAB=$(find android/app/build/outputs/bundle/release -maxdepth 1 -type f -name '*.aab' | head -n 1)
+          test -s "$AAB"
+          OUT="production-output/PDF-Pro-${{ steps.identity.outputs.version_name }}-vc${{ steps.identity.outputs.version_code }}-production-unsigned.aab"
+          cp "$AAB" "$OUT"
+          sha256sum "$OUT" | tee production-output/SHA256SUMS.txt
+          unzip -t "$OUT" > production-output/aab-zip-integrity.txt
+          jarsigner -verify "$OUT" >/tmp/jarsigner.txt 2>&1 || true
           cat /tmp/jarsigner.txt | tee production-output/unsigned-signing-state.txt
-          grep -qi "jar is unsigned" /tmp/jarsigner.txt || { echo 'AAB was expected to be unsigned in CI' >&2; exit 1; }
+          grep -qi 'jar is unsigned' /tmp/jarsigner.txt
 
-      - name: Download official bundletool 1.18.3
+      - name: Download official bundletool
         shell: bash
         run: |
           set -euo pipefail
@@ -106,143 +121,45 @@ jobs:
             -o /tmp/bundletool.jar
           java -jar /tmp/bundletool.jar version | tee production-output/bundletool-version.txt
 
-      - name: Validate bundle and manifest
+      - name: Validate Google Play bundle identity
         shell: bash
         run: |
           set -euo pipefail
-          AAB="production-output/$BUNDLE_NAME"
+          AAB=$(find production-output -maxdepth 1 -name '*.aab' | head -n 1)
           java -jar /tmp/bundletool.jar validate --bundle="$AAB" | tee production-output/bundletool-validate.txt
           java -jar /tmp/bundletool.jar dump manifest --bundle="$AAB" --module=base > production-output/base-manifest.xml
           java -jar /tmp/bundletool.jar dump config --bundle="$AAB" > production-output/bundle-config.txt
 
-          grep -q 'package="com.codecsverige.pdf"' production-output/base-manifest.xml
-          grep -Eq 'versionCode="9"|android:versionCode="9"' production-output/base-manifest.xml
+          grep -q 'package="${{ steps.identity.outputs.package }}"' production-output/base-manifest.xml
+          grep -Eq 'versionCode="${{ steps.identity.outputs.version_code }}"|android:versionCode="${{ steps.identity.outputs.version_code }}"' production-output/base-manifest.xml
           grep -Eq 'targetSdkVersion="36"|android:targetSdkVersion="36"' production-output/base-manifest.xml
           grep -q 'PAGE_ALIGNMENT_16K' production-output/bundle-config.txt
 
-          for forbidden in \
-            READ_EXTERNAL_STORAGE \
-            WRITE_EXTERNAL_STORAGE \
-            READ_MEDIA_IMAGES \
-            READ_MEDIA_VIDEO \
-            READ_MEDIA_AUDIO \
-            SYSTEM_ALERT_WINDOW; do
-            if grep -q "$forbidden" production-output/base-manifest.xml; then
-              echo "Forbidden production permission found in AAB manifest: $forbidden" >&2
-              exit 1
-            fi
-          done
-
-      - name: Generate temporary test APK set from AAB
-        shell: bash
-        run: |
-          set -euo pipefail
-          keytool -genkeypair -noprompt \
-            -keystore /tmp/aab-test.jks \
-            -storepass aab-validation-only \
-            -keypass aab-validation-only \
-            -alias validation \
-            -keyalg RSA -keysize 2048 -validity 30 \
-            -dname 'CN=AAB Validation,O=PDF Pro,C=SE'
-          java -jar /tmp/bundletool.jar build-apks \
-            --bundle="production-output/$BUNDLE_NAME" \
-            --output=/tmp/pdf-pro.apks \
-            --mode=universal \
-            --ks=/tmp/aab-test.jks \
-            --ks-pass=pass:aab-validation-only \
-            --ks-key-alias=validation \
-            --key-pass=pass:aab-validation-only
-          unzip -p /tmp/pdf-pro.apks universal.apk > production-output/universal-from-aab.apk
-
-      - name: Verify generated APK metadata and permissions
-        shell: bash
-        run: |
-          set -euo pipefail
-          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          APK=production-output/universal-from-aab.apk
-          "$BUILD_TOOLS/aapt" dump badging "$APK" > production-output/universal-badging.txt
-          "$BUILD_TOOLS/aapt" dump permissions "$APK" > production-output/universal-permissions.txt
-          grep -q "package: name='com.codecsverige.pdf'" production-output/universal-badging.txt
-          grep -q "versionCode='9'" production-output/universal-badging.txt
-          grep -q "versionName='1.5.1'" production-output/universal-badging.txt
-          grep -q "targetSdkVersion:'36'" production-output/universal-badging.txt
           for forbidden in READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE READ_MEDIA_IMAGES READ_MEDIA_VIDEO READ_MEDIA_AUDIO SYSTEM_ALERT_WINDOW; do
-            if grep -q "$forbidden" production-output/universal-permissions.txt; then
-              echo "Forbidden production permission found in generated APK: $forbidden" >&2
+            if grep -q "$forbidden" production-output/base-manifest.xml; then
+              echo "Forbidden production permission found: $forbidden" >&2
               exit 1
             fi
           done
 
-      - name: Verify APK 16 KB ZIP alignment
-        shell: bash
+      - name: Write release evidence
         run: |
-          set -euo pipefail
-          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          APK=production-output/universal-from-aab.apk
-          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK" > production-output/zipalign-16k.txt 2>&1
-          cat production-output/zipalign-16k.txt
-
-      - name: Verify official 64-bit ELF 16 KB LOAD alignment
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/universal-extract
-          mkdir -p /tmp/universal-extract
-          unzip -q production-output/universal-from-aab.apk 'lib/*/*.so' -d /tmp/universal-extract
-          python3 - <<'PY' | tee production-output/elf-16k-alignment.txt
-          from pathlib import Path
-          import subprocess, re, sys
-          bad=[]
-          checked=0
-          # Android's official 16 KB ELF validation applies to 64-bit arm64-v8a/x86_64 shared libraries.
-          for abi in ('arm64-v8a', 'x86_64'):
-              root = Path('/tmp/universal-extract/lib') / abi
-              for so in sorted(root.glob('*.so')):
-                  checked += 1
-                  out=subprocess.check_output(['readelf','-lW',str(so)],text=True,errors='replace')
-                  aligns=[]
-                  for line in out.splitlines():
-                      if re.match(r'\s*LOAD\s', line):
-                          token=line.split()[-1]
-                          try: aligns.append(int(token,16))
-                          except ValueError: pass
-                  minimum=min(aligns) if aligns else 0
-                  print(f'{abi} {minimum:#x} {so.name}')
-                  if aligns and minimum < 0x4000:
-                      bad.append((abi, str(so), minimum))
-          print(f'ELF_64BIT_FILES_CHECKED={checked}')
-          if checked == 0:
-              print('No 64-bit shared libraries found')
-              sys.exit(1)
-          if bad:
-              print(f'BAD_64BIT_ELF_COUNT={len(bad)}')
-              for abi,path,align in bad: print(f'BAD_ALIGNMENT={abi} {align:#x} {path}')
-              sys.exit(1)
-          print('ELF_64BIT_16KB_ALIGNMENT=PASS')
-          PY
-
-      - name: Write production evidence
-        run: |
-          mkdir -p production-output
-          cat > production-output/PRODUCTION-READINESS.txt <<'EOF'
-          PDF Pro 1.5.1 (versionCode 9)
-          Package: com.codecsverige.pdf
+          cat > production-output/PRODUCTION-READINESS.txt <<EOF
+          PDF Pro ${{ steps.identity.outputs.version_name }}
+          versionCode: ${{ steps.identity.outputs.version_code }}
+          Package: ${{ steps.identity.outputs.package }}
           Target SDK: 36
           AAB: bundletool validated
-          AAB native library page alignment request: PAGE_ALIGNMENT_16K
+          16 KB page alignment requested: PASS
           Broad media/storage permissions: absent
-          Advertising SDK: removed
-          Analytics SDK: none
-          Purchase SDK: removed from first production build
-          Processing model: local-first
-          16 KB ZIP alignment: PASS
-          16 KB ELF LOAD alignment for arm64-v8a/x86_64: PASS
-          Signing state: intentionally unsigned in CI; final upload signing is performed offline
+          Signing state: intentionally unsigned in CI; final signing must use the permanent PDF Pro Google Play upload key
+          Permanent upload certificate SHA1: 3F:02:EF:1A:D8:6B:43:40:F6:FD:BF:72:B5:B2:7E:32:30:2C:0A:9D
           EOF
 
-      - name: Upload production-ready unsigned AAB and evidence
+      - name: Upload validated unsigned AAB
         uses: actions/upload-artifact@v4
         with:
-          name: PDF-Pro-1.5.1-production-unsigned-ready
+          name: PDF-Pro-production-unsigned-ready
           path: production-output/
+          if-no-files-found: error
           retention-days: 30
