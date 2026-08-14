@@ -30,7 +30,7 @@
     },
     "android": {
       "package": "com.codecsverige.pdf",
-      "versionCode": 9,
+      "versionCode": 10,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/monochrome-icon.png",
